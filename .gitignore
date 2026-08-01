@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environments
+.venv/
+.venv-vllm/
+venv/
+.env
+
+# Training outputs and logs
+outputs/
+checkpoints/
+wandb/
+runs/
+logs/
+*.log
+
+# Large model/data artifacts
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# Caches
+.cache/
+tmp/
+temp/
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Python wheels / local binary deps
+*.whl
+verl/3_party/

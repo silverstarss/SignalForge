@@ -1,0 +1,125 @@
+diff --git a/verl/trainer/ppo/ray_trainer.py b/verl/trainer/ppo/ray_trainer.py
+index 986a937f..a0128ba4 100644
+--- a/verl/trainer/ppo/ray_trainer.py
++++ b/verl/trainer/ppo/ray_trainer.py
+@@ -135,6 +135,105 @@ def compute_response_mask(data: DataProto):
+     return attention_mask[:, -response_length:]
+ 
+ 
++
++def _cfg_get(config, key, default=None):
++    if config is None:
++        return default
++    if hasattr(config, "get"):
++        return config.get(key, default)
++    return getattr(config, key, default)
++
++
++def _filter_reward_infos(reward_extra_infos_dict: dict[str, list], keep_mask: np.ndarray, batch_size: int) -> dict[str, list]:
++    filtered = {}
++    for key, values in reward_extra_infos_dict.items():
++        if hasattr(values, "tolist"):
++            values = values.tolist()
++        if isinstance(values, list) and len(values) == batch_size:
++            filtered[key] = np.asarray(values, dtype=object)[keep_mask].tolist()
++        else:
++            filtered[key] = values
++    return filtered
++
++
++def apply_filter_groups(
++    batch: DataProto,
++    reward_extra_infos_dict: dict[str, list],
++    filter_groups_config,
++    ppo_mini_batch_size: int,
++) -> tuple[DataProto, dict[str, list], dict[str, float]]:
++    """Drop all-correct/all-wrong GRPO groups and report the compute budget."""
++    if not _cfg_get(filter_groups_config, "enable", False):
++        return batch, reward_extra_infos_dict, {}
++
++    metric_name = _cfg_get(filter_groups_config, "metric", None) or "acc"
++    uids = np.asarray(batch.non_tensor_batch["uid"], dtype=object)
++    batch_size = len(uids)
++    if metric_name in batch.non_tensor_batch:
++        metric_values = np.asarray(batch.non_tensor_batch[metric_name], dtype=np.float32)
++    else:
++        metric_values = batch.batch["token_level_rewards"].sum(dim=-1).detach().cpu().float().numpy()
++
++    uid_to_indices: dict[object, list[int]] = defaultdict(list)
++    for idx, uid in enumerate(uids):
++        uid_to_indices[uid].append(idx)
++
++    accepted_groups = []
++    all_correct_groups = 0
++    all_wrong_groups = 0
++    for indices in uid_to_indices.values():
++        vals = metric_values[indices]
++        all_correct = bool(np.all(vals > 0.0))
++        all_wrong = bool(np.all(vals <= 0.0))
++        all_correct_groups += int(all_correct)
++        all_wrong_groups += int(all_wrong)
++        if not all_correct and not all_wrong:
++            accepted_groups.append(indices)
++
++    raw_group_count = len(uid_to_indices)
++    accepted_group_count = len(accepted_groups)
++    dropped_for_minibatch = 0
++    if ppo_mini_batch_size and ppo_mini_batch_size > 0 and accepted_group_count > 0:
++        sample_count = sum(len(indices) for indices in accepted_groups)
++        while accepted_groups and sample_count % ppo_mini_batch_size != 0:
++            sample_count -= len(accepted_groups.pop())
++            dropped_for_minibatch += 1
++
++    metrics = {
++        "dynamic_sampling/group_count": float(raw_group_count),
++        "dynamic_sampling/accepted_group_count": float(len(accepted_groups)),
++        "dynamic_sampling/accepted_group_ratio": float(len(accepted_groups) / raw_group_count) if raw_group_count else 0.0,
++        "dynamic_sampling/all_correct_group_ratio": float(all_correct_groups / raw_group_count) if raw_group_count else 0.0,
++        "dynamic_sampling/all_wrong_group_ratio": float(all_wrong_groups / raw_group_count) if raw_group_count else 0.0,
++        "dynamic_sampling/rejected_group_ratio": float((raw_group_count - accepted_group_count) / raw_group_count)
++        if raw_group_count
++        else 0.0,
++        "dynamic_sampling/dropped_for_minibatch_group_count": float(dropped_for_minibatch),
++        "dynamic_sampling/raw_rollout_count": float(batch_size),
++        "dynamic_sampling/extra_rollout_count": 0.0,
++    }
++
++    if not accepted_groups:
++        metrics["dynamic_sampling/fallback_unfiltered"] = 1.0
++        return batch, reward_extra_infos_dict, metrics
++
++    keep_indices = np.asarray([idx for group in accepted_groups for idx in group], dtype=np.int64)
++    keep_mask = np.zeros(batch_size, dtype=bool)
++    keep_mask[keep_indices] = True
++    metrics["dynamic_sampling/accepted_rollout_count"] = float(len(keep_indices))
++    metrics["dynamic_sampling/rejected_rollout_count"] = float(batch_size - len(keep_indices))
++    metrics["dynamic_sampling/accepted_rollout_ratio"] = float(len(keep_indices) / batch_size) if batch_size else 0.0
++    metrics["dynamic_sampling/raw_response_tokens"] = float(batch.batch["response_mask"].sum().detach().cpu().item())
++
++    filtered_batch = batch.select_idxs(keep_indices)
++    for key, value in list(filtered_batch.meta_info.items()):
++        if isinstance(value, list) and len(value) == batch_size:
++            filtered_batch.meta_info[key] = [value[int(i)] for i in keep_indices]
++    metrics["dynamic_sampling/accepted_response_tokens"] = float(
++        filtered_batch.batch["response_mask"].sum().detach().cpu().item()
++    )
++    return filtered_batch, _filter_reward_infos(reward_extra_infos_dict, keep_mask, batch_size), metrics
++
+ def compute_spec_decode_metrics(
+     spec_drafts,
+     spec_accepts,
+@@ -1607,6 +1706,14 @@ class RayPPOTrainer:
+                         else:
+                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
+ 
++                        batch, reward_extra_infos_dict, filter_group_metrics = apply_filter_groups(
++                            batch=batch,
++                            reward_extra_infos_dict=reward_extra_infos_dict,
++                            filter_groups_config=self.config.algorithm.get("filter_groups", None),
++                            ppo_mini_batch_size=self.config.actor_rollout_ref.actor.ppo_mini_batch_size,
++                        )
++                        metrics.update(filter_group_metrics)
++
+                         # Compute rollout correction: IS weights, rejection sampling, and metrics
+                         # Only runs in decoupled mode (computes once per batch using stable π_old)
+                         # In bypass mode, this is skipped - actor computes metrics from evolving π_θ vs π_rollout

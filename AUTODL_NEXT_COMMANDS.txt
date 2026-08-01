@@ -1,0 +1,16 @@
+# 4090 0.5B regression
+bash /workspace/src/scripts_a0/06_prepare_a0_0p5b_regression_data.sh
+bash /workspace/src/scripts_a0/07_run_a0_0p5b_short.sh
+bash /workspace/src/scripts_a0/08_run_a0_0p5b_regression.sh
+bash /workspace/src/scripts_a0/09_reload_a0_0p5b_regression_checkpoint.sh
+
+# A800 1.5B smoke
+bash /workspace/src/scripts_a0/00_prepare_a0_data.sh
+bash /workspace/src/scripts_a0/01_check_reward_equivalence.sh
+bash /workspace/src/scripts_a0/02_check_verl_reward_manager.sh
+bash /workspace/src/scripts_a0/03_run_a0_grpo_smoke.sh
+bash /workspace/src/scripts_a0/04_reload_a0_checkpoint.sh
+
+# tmux examples
+tmux new -s a0_0p5b
+tmux attach -t a0_0p5b
