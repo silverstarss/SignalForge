@@ -12,15 +12,19 @@ venv/
 .env
 
 # Training outputs and logs
-outputs/
-checkpoints/
-wandb/
+/outputs/
+/outputs
+/checkpoints/
+/checkpoints
+/wandb/
+/wandb
 runs/
 logs/
 *.log
 
 # Large model/data artifacts
-models/
+/models/
+/models
 *.pt
 *.pth
 *.bin

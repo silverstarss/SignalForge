@@ -2,11 +2,17 @@
 # Upload a prepared A0 bundle to an AutoDL no-GPU machine by scp.
 set -euo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${SCRIPT_DIR}"
+
 BUNDLE=${1:-}
 AUTODL_HOST=${AUTODL_HOST:-}
 AUTODL_USER=${AUTODL_USER:-root}
 AUTODL_PORT=${AUTODL_PORT:-22}
-REMOTE_DIR=${REMOTE_DIR:-/root/autodl-tmp/signal_forge_uploads}
+REMOTE_DIR=${REMOTE_DIR:-${OUTPUT_ROOT}/signal_forge_uploads}
 
 if [ -z "${BUNDLE}" ]; then
     echo "Usage: AUTODL_HOST=<host> [AUTODL_PORT=port] bash $0 /path/to/bundle.tar.gz" >&2

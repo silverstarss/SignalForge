@@ -3,18 +3,24 @@
 # vendored Math-Verify runtime, local validation data, and optional model tars.
 set -euo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/home/tutu/grpo}
-SRC_DIR=${SRC_DIR:-${ROOT_DIR}/src}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${SCRIPT_DIR}"
+
+ROOT_DIR=${ROOT_DIR:-${SIGNAL_FORGE_ROOT}}
+SRC_DIR=${SRC_DIR:-${SIGNAL_FORGE_SRC}}
 VERL_DIR=${VERL_DIR:-${ROOT_DIR}/verl}
-OUT_DIR=${OUT_DIR:-${ROOT_DIR}/autodl_bundles}
+OUT_DIR=${OUT_DIR:-${OUTPUT_ROOT}/autodl_bundles}
 STAMP=${STAMP:-$(date +%Y%m%d_%H%M%S)}
 BUNDLE_NAME=${BUNDLE_NAME:-signal_forge_a0_autodl_${STAMP}}
 STAGE_DIR=${STAGE_DIR:-${OUT_DIR}/${BUNDLE_NAME}}
 OUT_TAR=${OUT_TAR:-${OUT_DIR}/${BUNDLE_NAME}.tar.gz}
 INCLUDE_0P5B=${INCLUDE_0P5B:-1}
 INCLUDE_1P5B=${INCLUDE_1P5B:-0}
-QWEN_0P5B_TAR=${QWEN_0P5B_TAR:-${ROOT_DIR}/qwen25_0p5b_instruct.tar.gz}
-QWEN_1P5B_TAR=${QWEN_1P5B_TAR:-${ROOT_DIR}/qwen25_1p5b_instruct.tar.gz}
+QWEN_0P5B_TAR=${QWEN_0P5B_TAR:-${SIGNAL_FORGE_ROOT}/qwen25_0p5b_instruct.tar.gz}
+QWEN_1P5B_TAR=${QWEN_1P5B_TAR:-${SIGNAL_FORGE_ROOT}/qwen25_1p5b_instruct.tar.gz}
 
 if [ ! -d "${SRC_DIR}" ]; then
     echo "ERROR: SRC_DIR not found: ${SRC_DIR}" >&2

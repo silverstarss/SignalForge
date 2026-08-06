@@ -4,7 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 BUNDLE_ROOT=${BUNDLE_ROOT:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}
-WORKSPACE=${WORKSPACE:-/workspace}
+
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${SCRIPT_DIR}"
+WORKSPACE=${WORKSPACE:-${SIGNAL_FORGE_ROOT}}
 WANDB_PROJECT=${WANDB_PROJECT:-signal_forge_a0}
 RUN_NO_GPU_CHECKS=${RUN_NO_GPU_CHECKS:-1}
 UNPACK_0P5B=${UNPACK_0P5B:-1}

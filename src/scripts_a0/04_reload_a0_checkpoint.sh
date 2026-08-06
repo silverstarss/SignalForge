@@ -2,13 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-SIGNAL_FORGE_SRC=${SIGNAL_FORGE_SRC:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}
-ROOT_DIR=${ROOT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}
-VENDOR_PYTHON=${VENDOR_PYTHON:-${SIGNAL_FORGE_SRC}/vendor_python}
+
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${SCRIPT_DIR}"
+
 PROJECT_NAME=${PROJECT_NAME:-signal_forge_a0}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-A0_grpo_math_verify_qwen25_1p5b}
-OUT_DIR=${OUT_DIR:-${ROOT_DIR}/outputs/${PROJECT_NAME}/${EXPERIMENT_NAME}}
-CKPT_DIR=${CKPT_DIR:-${OUT_DIR}/checkpoints}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-A0_grpo_math_verify_qwen25_${QWEN25_DEFAULT_SIZE}}
+OUT_DIR=${OUT_DIR:-${OUTPUT_ROOT}/${PROJECT_NAME}/${EXPERIMENT_NAME}}
+CKPT_DIR=${CKPT_DIR:-${CHECKPOINT_ROOT}/${PROJECT_NAME}/${EXPERIMENT_NAME}}
 LATEST_FILE=${LATEST_FILE:-${CKPT_DIR}/latest_checkpointed_iteration.txt}
 
 if [ ! -f "${LATEST_FILE}" ]; then

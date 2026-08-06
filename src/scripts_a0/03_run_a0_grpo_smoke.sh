@@ -3,24 +3,10 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-SIGNAL_FORGE_SRC=${SIGNAL_FORGE_SRC:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}
-ROOT_DIR=${ROOT_DIR:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}
-VENDOR_PYTHON=${VENDOR_PYTHON:-${SIGNAL_FORGE_SRC}/vendor_python}
-VERL_DIR=${VERL_DIR:-${ROOT_DIR}/verl}
-if [ ! -d "${VERL_DIR}" ] && [ -d /home/tutu/grpo/verl ]; then
-    VERL_DIR=/home/tutu/grpo/verl
-fi
-REWARDSCOPE_SRC=${REWARDSCOPE_SRC:-${SIGNAL_FORGE_SRC}/RewardScope/src}
-if [ ! -d "${REWARDSCOPE_SRC}" ] && [ -d "${ROOT_DIR}/RewardScope/src" ]; then
-    REWARDSCOPE_SRC=${ROOT_DIR}/RewardScope/src
-fi
-if [ ! -d "${REWARDSCOPE_SRC}" ] && [ -d /home/tutu/grpo/src/RewardScope/src ]; then
-    REWARDSCOPE_SRC=/home/tutu/grpo/src/RewardScope/src
-fi
-VENV_DIR=${VENV_DIR:-${ROOT_DIR}/.venv-vllm}
-if [ ! -f "${VENV_DIR}/bin/activate" ] && [ -f /home/tutu/grpo/.venv-vllm/bin/activate ]; then
-    VENV_DIR=/home/tutu/grpo/.venv-vllm
-fi
+
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${SCRIPT_DIR}"
 
 for override in "$@"; do
     case "${override}" in
@@ -53,13 +39,13 @@ fi
 source "${SCRIPT_DIR}/_model_paths.sh"
 
 PROJECT_NAME=${PROJECT_NAME:-signal_forge_a0}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-A0_grpo_math_verify_qwen25_1p5b}
-MODEL_PATH=${MODEL_PATH:-$(choose_qwen25_1p5b_path)}
-TRAIN_FILE=${TRAIN_FILE:-${ROOT_DIR}/data/signal_forge_a0/train.parquet}
-TEST_FILE=${TEST_FILE:-${ROOT_DIR}/data/signal_forge_a0/val.parquet}
-OUT_DIR=${OUT_DIR:-${ROOT_DIR}/outputs/${PROJECT_NAME}/${EXPERIMENT_NAME}}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-A0_grpo_math_verify_qwen25_${QWEN25_DEFAULT_SIZE}}
+MODEL_PATH=${MODEL_PATH:-$(choose_qwen25_default_path)}
+TRAIN_FILE=${TRAIN_FILE:-${DATA_ROOT}/signal_forge_a0/train.parquet}
+TEST_FILE=${TEST_FILE:-${DATA_ROOT}/signal_forge_a0/val.parquet}
+OUT_DIR=${OUT_DIR:-${OUTPUT_ROOT}/${PROJECT_NAME}/${EXPERIMENT_NAME}}
 LOG_DIR=${LOG_DIR:-${OUT_DIR}/logs}
-CKPT_DIR=${CKPT_DIR:-${OUT_DIR}/checkpoints}
+CKPT_DIR=${CKPT_DIR:-${CHECKPOINT_ROOT}/${PROJECT_NAME}/${EXPERIMENT_NAME}}
 ROLLOUT_DIR=${ROLLOUT_DIR:-${OUT_DIR}/rollout_data}
 VAL_DIR=${VAL_DIR:-${OUT_DIR}/validation_data}
 mkdir -p "${LOG_DIR}" "${CKPT_DIR}" "${ROLLOUT_DIR}" "${VAL_DIR}"

@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+if ! declare -F load_signal_forge_paths >/dev/null 2>&1; then
+    SCRIPT_DIR=${SCRIPT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)}
+    # shellcheck source=/dev/null
+    source "${SCRIPT_DIR}/_paths.sh"
+    load_signal_forge_paths "${SCRIPT_DIR}"
+fi
+
 choose_qwen25_model_path() {
     local size="$1"
     local dotted
@@ -21,10 +28,8 @@ choose_qwen25_model_path() {
     esac
 
     local candidates=(
-        "${ROOT_DIR}/models/Qwen/${dotted}"
-        "${ROOT_DIR}/models/Qwen/${escaped}"
-        "/home/tutu/tinyvr/models/Qwen/${dotted}"
-        "/home/tutu/tinyvr/models/Qwen/${escaped}"
+        "${MODEL_ROOT}/Qwen/${dotted}"
+        "${MODEL_ROOT}/Qwen/${escaped}"
     )
 
     local candidate
@@ -51,4 +56,8 @@ choose_qwen25_0p5b_path() {
 
 choose_qwen25_1p5b_path() {
     choose_qwen25_model_path "1.5B"
+}
+
+choose_qwen25_default_path() {
+    choose_qwen25_model_path "${QWEN25_DEFAULT_SIZE:-0.5B}"
 }

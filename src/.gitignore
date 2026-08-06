@@ -1,6 +1,6 @@
 .venv/
 .venv-vllm/
-data/
+/data/
 outputs/
 checkpoints/
 wandb/
