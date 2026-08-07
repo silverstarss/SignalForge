@@ -32,4 +32,5 @@ exec bash "${SCRIPT_DIR}/03_run_a0_grpo_smoke.sh" \
     trainer.val_only=True \
     trainer.val_before_train=True \
     trainer.save_freq=-1 \
+    --allow-existing-output \
     "$@"

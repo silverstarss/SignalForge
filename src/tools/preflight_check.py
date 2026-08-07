@@ -417,10 +417,14 @@ def check_paths(rep: Reporter, cfg: dict[str, Any], root: Path, allow_existing_o
                 rep.fail(f"B.path.{label}.writable", "output parent is not writable", path=str(parent), error=str(exc))
     resume_mode = get(cfg, "trainer.resume_mode")
     resume_path = get(cfg, "trainer.resume_from_path")
-    if resume_mode not in {"disable", None}:
-        rep.fail("B.resume.mode", "A0 launch should not accidentally resume", resume_mode=resume_mode, resume_from_path=resume_path)
-    else:
+    val_only = bool(get(cfg, "trainer.val_only", False))
+    resume_dir = path_value(resume_path, root) if resume_path else None
+    if resume_mode in {"disable", None}:
         rep.pass_("B.resume.mode", "resume_mode disables accidental checkpoint resume", resume_mode=resume_mode)
+    elif resume_mode == "resume_path" and val_only and resume_dir and resume_dir.exists():
+        rep.pass_("B.resume.mode", "explicit val-only checkpoint reload is configured", resume_mode=resume_mode, resume_from_path=str(resume_dir))
+    else:
+        rep.fail("B.resume.mode", "A0 launch should not accidentally resume", resume_mode=resume_mode, resume_from_path=resume_path, val_only=val_only)
     old_refs = []
     for candidate in [root / "config", root / "src" / "scripts_a0", root / "src" / "signal_forge"]:
         if not candidate.exists():
