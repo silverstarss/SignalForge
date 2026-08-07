@@ -62,6 +62,11 @@ def compute_reward_extra_metrics(reward_extra_infos: dict) -> dict[str, float]:
     score = _float_values(reward_extra_infos.get("score", raw))
     extraction_ok = _float_values(reward_extra_infos.get("extraction_ok", []))
     format_ok = _float_values(reward_extra_infos.get("format_ok", []))
+    parser_latency = sorted(_float_values(reward_extra_infos.get("parser_latency_ms", [])))
+    parser_timeout = _float_values(reward_extra_infos.get("parser_timeout", []))
+    parser_exception = _float_values(reward_extra_infos.get("parser_exception", []))
+    input_chars = sorted(_float_values(reward_extra_infos.get("verifier_input_chars", [])))
+    fallback_used = _float_values(reward_extra_infos.get("fallback_used", []))
 
     metrics = {}
     if raw:
@@ -71,8 +76,22 @@ def compute_reward_extra_metrics(reward_extra_infos: dict) -> dict[str, float]:
     if extraction_ok:
         metrics["reward/extraction_ok_ratio"] = _mean(extraction_ok)
         metrics["reward/extraction_failure_ratio"] = 1.0 - _mean(extraction_ok)
+        metrics["reward/extraction_failure_rate"] = 1.0 - _mean(extraction_ok)
     if format_ok:
         metrics["reward/format_ok_ratio"] = _mean(format_ok)
+    if parser_latency:
+        metrics["reward/parser_latency_ms_mean"] = _mean(parser_latency)
+        metrics["reward/parser_latency_ms_p95"] = _percentile(parser_latency, 0.95)
+        metrics["reward/parser_latency_ms_max"] = float(max(parser_latency))
+    if parser_timeout:
+        metrics["reward/parser_timeout_rate"] = _mean(parser_timeout)
+    if parser_exception:
+        metrics["reward/parser_exception_rate"] = _mean(parser_exception)
+    if input_chars:
+        metrics["reward/verifier_input_chars_p95"] = _percentile(input_chars, 0.95)
+        metrics["reward/verifier_input_chars_max"] = float(max(input_chars))
+    if fallback_used:
+        metrics["reward/fallback_rate"] = _mean(fallback_used)
     metrics["reward/format_reward_mean"] = 0.0
     metrics["reward/length_penalty_mean"] = 0.0
     return metrics

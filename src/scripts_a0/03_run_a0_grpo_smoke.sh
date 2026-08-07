@@ -8,12 +8,40 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "${SCRIPT_DIR}/_paths.sh"
 load_signal_forge_paths "${SCRIPT_DIR}"
 
+PREFLIGHT_ONLY=${PREFLIGHT_ONLY:-0}
+PREFLIGHT_MODE=${PREFLIGHT_MODE:-fast}
+PREFLIGHT_STRICT=${PREFLIGHT_STRICT:-0}
+PREFLIGHT_FORMAL=${PREFLIGHT_FORMAL:-0}
+ALLOW_EXISTING_OUTPUT=${ALLOW_EXISTING_OUTPUT:-0}
+TRAIN_ARGS=()
+
 for override in "$@"; do
     case "${override}" in
+        --preflight-only)
+            PREFLIGHT_ONLY=1
+            ;;
+        --preflight-fast)
+            PREFLIGHT_MODE=fast
+            ;;
+        --preflight-deep)
+            PREFLIGHT_MODE=deep
+            ;;
+        --strict)
+            PREFLIGHT_STRICT=1
+            ;;
+        --formal)
+            PREFLIGHT_FORMAL=1
+            ;;
+        --allow-existing-output)
+            ALLOW_EXISTING_OUTPUT=1
+            ;;
         trainer.use_v1=True|trainer.use_v1=true|+trainer.use_v1=True|+trainer.use_v1=true|transfer_queue.enable=True|transfer_queue.enable=true|+transfer_queue.enable=True|+transfer_queue.enable=true)
             echo "ERROR: A0 must use trainer.use_v1=False; v1 imports transfer_queue in this local veRL checkout." >&2
             echo "Remove '${override}' from the command line." >&2
             exit 2
+            ;;
+        *)
+            TRAIN_ARGS+=("${override}")
             ;;
     esac
 done
@@ -30,10 +58,6 @@ export VLLM_USE_V1=${VLLM_USE_V1:-1}
 export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 export HYDRA_FULL_ERROR=${HYDRA_FULL_ERROR:-1}
 export RAY_DEDUP_LOGS=${RAY_DEDUP_LOGS:-0}
-
-if command -v ray >/dev/null 2>&1; then
-    ray stop --force || true
-fi
 
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/_model_paths.sh"
@@ -86,6 +110,7 @@ if [ -n "${MONITOR_SCRIPT}" ]; then
     trap 'if [ -n "${MONITOR_PID}" ]; then kill "${MONITOR_PID}" 2>/dev/null || true; fi' EXIT
 fi
 
+if [ "${PREFLIGHT_ONLY}" != "1" ]; then
 python - <<'PY' | tee "${LOG_DIR}/env_${start_time}.json"
 import importlib.metadata as metadata
 import json
@@ -141,6 +166,7 @@ trainer_use_v1=false
 transfer_queue_enable=false
 checkpoint_rule=A0 smoke requires at least one checkpoint and one reload check; formal A uses fixed validation schedule and reports best-validation plus final step.
 EOF
+fi
 
 DATA=(
     algorithm.adv_estimator=grpo
@@ -215,6 +241,12 @@ REWARD=(
     reward.reward_manager.name=naive
     reward.custom_reward_function.path="${SIGNAL_FORGE_SRC}/signal_forge/rewards/math_verify_adapter.py"
     reward.custom_reward_function.name=compute_score
+    reward.reward_model.rollout.name="${ROLLOUT_NAME:-vllm}"
+    +reward.custom_reward_function.reward_kwargs.verify_timeout_mode=${VERIFY_TIMEOUT_MODE:-process}
+    +reward.custom_reward_function.reward_kwargs.verify_timeout_seconds=${VERIFY_TIMEOUT_SECONDS:-10}
+    +reward.custom_reward_function.reward_kwargs.verify_timeout_fallback=${VERIFY_TIMEOUT_FALLBACK:-True}
+    +reward.custom_reward_function.reward_kwargs.verify_timeout_fallback_score=${VERIFY_TIMEOUT_FALLBACK_SCORE:-0.0}
+    +reward.custom_reward_function.reward_kwargs.verifier_max_input_chars=${VERIFIER_MAX_INPUT_CHARS:-200000}
 )
 
 FILTER_GROUPS=(
@@ -248,6 +280,60 @@ TRAINER=(
     trainer.use_v1=False
 )
 
+PREFLIGHT_ARGS=(
+    --project-root "${SIGNAL_FORGE_ROOT}"
+    --launch-script "${SCRIPT_DIR}/08_run_a0_0p5b_regression.sh"
+    --resolved-config "${LOG_DIR}/resolved_config_${start_time}.yaml"
+    --mode "${PREFLIGHT_MODE}"
+    --json-report "${LOG_DIR}/preflight_${start_time}.json"
+)
+if [ "${PREFLIGHT_STRICT}" = "1" ]; then
+    PREFLIGHT_ARGS+=(--strict)
+fi
+if [ "${PREFLIGHT_FORMAL}" = "1" ]; then
+    PREFLIGHT_ARGS+=(--formal)
+fi
+if [ "${ALLOW_EXISTING_OUTPUT}" = "1" ]; then
+    PREFLIGHT_ARGS+=(--allow-existing-output)
+fi
+if [ "${PREFLIGHT_MODE}" = "deep" ]; then
+    PREFLIGHT_ARGS+=(--benchmark-parser)
+fi
+
+if [ "${SKIP_PREFLIGHT:-0}" = "1" ]; then
+    echo "========================================================================" >&2
+    echo "WARNING: SKIP_PREFLIGHT=1 is set. Training will start without preflight." >&2
+    echo "Use only for emergency debugging; this bypasses A0 safety checks." >&2
+    echo "========================================================================" >&2
+else
+    RESOLVED_CONFIG_TIMEOUT=${RESOLVED_CONFIG_TIMEOUT:-60}
+    if ! timeout "${RESOLVED_CONFIG_TIMEOUT}" python -m verl.trainer.main_ppo --cfg job --resolve \
+        "${DATA[@]}" \
+        "${MODEL[@]}" \
+        "${ACTOR[@]}" \
+        "${ROLLOUT[@]}" \
+        "${REF[@]}" \
+        "${REWARD[@]}" \
+        "${FILTER_GROUPS[@]}" \
+        "${TRAINER[@]}" \
+        "${TRAIN_ARGS[@]}" > "${LOG_DIR}/resolved_config_${start_time}.yaml"; then
+        echo "WARNING: Hydra --cfg job --resolve failed in this environment; writing launch-array fallback config for preflight." >&2
+        python "${SIGNAL_FORGE_SRC}/tools/preflight_check.py" \
+            --write-fallback-config "${LOG_DIR}/resolved_config_${start_time}.yaml" \
+            $(printf ' --override %q' "${DATA[@]}" "${MODEL[@]}" "${ACTOR[@]}" "${ROLLOUT[@]}" "${REF[@]}" "${REWARD[@]}" "${FILTER_GROUPS[@]}" "${TRAINER[@]}" "${TRAIN_ARGS[@]}")
+    fi
+    python "${SIGNAL_FORGE_SRC}/tools/preflight_check.py" "${PREFLIGHT_ARGS[@]}"
+fi
+
+if [ "${PREFLIGHT_ONLY}" = "1" ]; then
+    echo "Preflight-only mode complete; training was not started."
+    exit 0
+fi
+
+if command -v ray >/dev/null 2>&1; then
+    ray stop --force || true
+fi
+
 python -m verl.trainer.main_ppo \
     "${DATA[@]}" \
     "${MODEL[@]}" \
@@ -257,4 +343,4 @@ python -m verl.trainer.main_ppo \
     "${REWARD[@]}" \
     "${FILTER_GROUPS[@]}" \
     "${TRAINER[@]}" \
-    "$@" 2>&1 | tee "${LOG_DIR}/train_${start_time}.log"
+    "${TRAIN_ARGS[@]}" 2>&1 | tee "${LOG_DIR}/train_${start_time}.log"
