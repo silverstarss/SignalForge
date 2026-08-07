@@ -106,6 +106,7 @@ def test_previous_40_response_vs_160_minibatch_failure(tmp_path):
 
 def test_six_steps_per_epoch_vs_fifty_requested_failure(tmp_path):
     cfg = base_cfg(tmp_path)
+    cfg["trainer"]["total_epochs"] = 8
     rep = pf.Reporter()
     dataset = pf.check_dataset(rep, cfg, {"train": cfg["data"]["train_files"], "val": cfg["data"]["val_files"]}, False, None)
     assert dataset["steps_per_epoch"] == 6
