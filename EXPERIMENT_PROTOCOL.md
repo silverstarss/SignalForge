@@ -8,8 +8,8 @@
 - **Task type:** Mathematical RLVR
 - **Current implementation stage:** Experiment A — GRPO Baseline
 - **Protocol version:** `v1.0`
-- **Protocol status:** Draft for implementation
-- **Last updated:** 2026-07-28
+- **Protocol status:** Stage 0 frozen for 1.5B A preflight/regression
+- **Last updated:** 2026-08-08
 
 > This document is the source of truth for all Signal Forge experiments.
 > Any change that affects model, data, reward, rollout, optimization, evaluation,
@@ -119,7 +119,10 @@ dataset:
     math_level_3: 0.40
   math_subset: level_3_only
   dataset_version: signal_forge_v1
-  split_seed: TODO
+  split_seed: 20260728
+  train_file: data/processed/signal_forge_v1/train.parquet
+  validation_file: data/processed/signal_forge_v1/validation_id.parquet
+  test_file: data/processed/signal_forge_v1/test_id.parquet
 ```
 
 The processed dataset must preserve:
@@ -157,6 +160,87 @@ failure_reason
 
 The training verifier must be behaviorally identical to the verifier used in
 RewardScope and evaluation.
+
+### 3.6 Frozen Signal Forge v1 Splits
+
+`signal_forge_v1` is fixed before the 1.5B A800 smoke/regression runs.
+
+```yaml
+dataset_version: signal_forge_v1
+split_seed: 20260728
+train:
+  rows: 3475
+  gsm8k: 2085
+  math_level_3: 1390
+validation_id:
+  rows: 500
+  gsm8k: 300
+  math_level_3: 200
+test_id:
+  rows: 2450
+  gsm8k: 1319
+  math_level_3: 1131
+math_archive_sha256: 8bbd824cbbaf46fe86ccdafaf443c42cbf4773f16cadaf927910d3ddec76b28f
+```
+
+`validation_id` is the only split used for checkpoint selection. `test_id`
+must be evaluated only after checkpoint selection is complete.
+
+### 3.7 Validation And Checkpoint Selection
+
+The best checkpoint for Experiment A is selected by `validation_id` 60/40
+weighted pass@1:
+
+```text
+0.60 * validation_gsm8k_pass_at_1 + 0.40 * validation_math_level_3_pass_at_1
+```
+
+Runs must also report GSM8K pass@1, MATH Level 3 pass@1, and macro-average
+pass@1. The test set must not be used to choose checkpoints or change training
+budget.
+
+### 3.8 Stage Gates Before Formal A
+
+Before formal Experiment A starts, complete these gates in order:
+
+1. Stage 0: freeze data, prompt, verifier, rollout shape, validation protocol,
+   software/git version, and checkpoint-selection rule.
+2. Stage 1: run A800 fast and deep preflight only; do not train.
+3. Stage 2: run a 1.5B 2-3 optimizer-step smoke test to verify the full chain.
+4. Stage 3: run a 1.5B 40-step regression to expose slower memory, logging,
+   reward-latency, checkpoint, and validation problems.
+5. Stage 4: stop the 40-step run completely, reload its checkpoint, and continue
+   for 3-5 optimizer steps to verify resume semantics.
+
+`n=8` and `max_response_length=768` remain fixed during these gates. If the
+1.5B A800 path OOMs, adjust engineering parameters first: micro-batches,
+prompts per optimizer step, dynamic token budget, FSDP/offload, and vLLM memory
+utilization.
+
+### 3.9 Formal Compute Budget
+
+The formal Experiment A compute budget is:
+
+```text
+TBD after 1.5B 40-step regression
+```
+
+It must be frozen before formal A starts and must include:
+
+- `max_optimizer_steps`;
+- `max_generated_responses`;
+- `target_rollout_response_tokens`;
+- GPU-hour upper bound.
+
+The primary A-E fairness budget is matched rollout response tokens or generated
+responses, not epochs alone and not optimizer steps alone. Discarded rollout
+groups in later variants still count toward generated-response and token budget.
+
+Formal runs may stop early only for correctness or infrastructure failures such
+as NaN/Inf, OOM, verifier failure, reward collapse, extraction/format failure
+spikes, KL/entropy/gradient instability, response-length collapse, memory leak,
+or checkpoint failure. Flat recent validation alone is not a reason to change a
+formal run's compute budget.
 
 ---
 

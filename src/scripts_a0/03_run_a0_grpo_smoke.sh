@@ -282,7 +282,7 @@ TRAINER=(
 
 PREFLIGHT_ARGS=(
     --project-root "${SIGNAL_FORGE_ROOT}"
-    --launch-script "${SCRIPT_DIR}/08_run_a0_0p5b_regression.sh"
+    --launch-script "${PREFLIGHT_LAUNCH_SCRIPT:-${SCRIPT_DIR}/08_run_a0_0p5b_regression.sh}"
     --resolved-config "${LOG_DIR}/resolved_config_${start_time}.yaml"
     --mode "${PREFLIGHT_MODE}"
     --json-report "${LOG_DIR}/preflight_${start_time}.json"
