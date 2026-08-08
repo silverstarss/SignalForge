@@ -49,3 +49,9 @@ temp/
 # Python wheels / local binary deps
 *.whl
 verl/3_party/
+
+# Local dataset artifacts
+/data/processed/
+/src/RewardScope/raw/competition_math/train/
+/src/RewardScope/raw/competition_math/test/
+/_downloads/
