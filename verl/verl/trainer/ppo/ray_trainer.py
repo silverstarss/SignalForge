@@ -870,7 +870,7 @@ class RayPPOTrainer:
             return {}
 
         metric_value = float(metric_value)
-        if self._best_validation_metric is not None and metric_value < self._best_validation_metric:
+        if self._best_validation_metric is not None and metric_value <= self._best_validation_metric:
             return {
                 "val/best_pass_at_1": float(self._best_validation_metric),
                 "val/best_step": float(self._best_validation_step if self._best_validation_step is not None else -1),
@@ -880,14 +880,26 @@ class RayPPOTrainer:
         self._best_validation_step = int(self.global_steps)
         checkpoint_dir = self.config.trainer.default_local_dir
         checkpoint_path = os.path.join(checkpoint_dir, f"global_step_{self.global_steps}")
+        checkpoint_saved_on_update = False
         if not os.path.isdir(checkpoint_path):
             checkpoint_path = None
+            if self.global_steps > 0 and self.config.trainer.get("best_checkpoint_save_on_update", False):
+                print(
+                    "Best validation metric improved at an unscheduled checkpoint step; "
+                    f"saving full checkpoint for global_step_{self.global_steps}."
+                )
+                self._save_checkpoint()
+                expected_checkpoint_path = os.path.join(checkpoint_dir, f"global_step_{self.global_steps}")
+                if os.path.isdir(expected_checkpoint_path):
+                    checkpoint_path = expected_checkpoint_path
+                    checkpoint_saved_on_update = True
 
         metadata = {
             "metric_name": metric_name,
             "metric_value": metric_value,
             "global_step": int(self.global_steps),
             "checkpoint_path": checkpoint_path,
+            "checkpoint_saved_on_update": checkpoint_saved_on_update,
             "updated_at_unix": time.time(),
         }
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -898,6 +910,8 @@ class RayPPOTrainer:
         return {
             "val/best_pass_at_1": metric_value,
             "val/best_step": float(self.global_steps),
+            "val/best_checkpoint_available": float(checkpoint_path is not None),
+            "val/best_checkpoint_saved_on_update": float(checkpoint_saved_on_update),
         }
 
     def _merge_validation_results(self, result_a, result_b):
