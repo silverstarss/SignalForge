@@ -198,6 +198,7 @@ def compute_score(
 
     latency_ms = (time.perf_counter() - started) * 1000.0
     payload.setdefault("failure_reason", "extraction_failure" if not payload.get("extraction_ok") else "")
+    payload.setdefault("verifier_error_detail", "")
     payload.setdefault("fallback_used", False)
     payload["parser_latency_ms"] = float(latency_ms if math.isfinite(latency_ms) else 0.0)
     payload["parser_timeout"] = bool(payload.get("failure_reason") == "parse_timeout")
