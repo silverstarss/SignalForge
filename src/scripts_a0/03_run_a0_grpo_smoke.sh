@@ -149,6 +149,7 @@ model_path=${MODEL_PATH}
 train_file=${TRAIN_FILE}
 test_file=${TEST_FILE}
 train_batch_size=${TRAIN_BATCH_SIZE}
+gen_batch_size=${GEN_BATCH_SIZE:-${TRAIN_BATCH_SIZE}}
 rollout_n=${ROLLOUT_N}
 val_rollout_n=${VAL_ROLLOUT_N}
 total_training_steps=${TOTAL_TRAINING_STEPS}
@@ -158,7 +159,8 @@ validation_decoding=deterministic_temperature_0_n_1
 raw_rollouts_per_step=${RAW_ROLLOUTS_PER_STEP}
 raw_rollouts_total=${RAW_ROLLOUTS_TOTAL}
 raw_rollout_tokens_budget_upper_bound=$((RAW_ROLLOUTS_TOTAL * MAX_RESPONSE_LENGTH))
-dynamic_sampling=false
+target_response_tokens=${TARGET_RESPONSE_TOKENS:-0}
+dynamic_sampling=${FILTER_GROUPS_ENABLE:-False}
 clip_higher=false
 overlong_reward_shaping=false
 curriculum_sampling=false
@@ -175,6 +177,7 @@ DATA=(
     data.train_files="${TRAIN_FILE}"
     data.val_files="${TEST_FILE}"
     data.train_batch_size=${TRAIN_BATCH_SIZE}
+    +data.gen_batch_size=${GEN_BATCH_SIZE:-${TRAIN_BATCH_SIZE}}
     data.max_prompt_length=${MAX_PROMPT_LENGTH}
     data.max_response_length=${MAX_RESPONSE_LENGTH}
     data.filter_overlong_prompts=True
@@ -250,9 +253,9 @@ REWARD=(
 )
 
 FILTER_GROUPS=(
-    +algorithm.filter_groups.enable=False
-    +algorithm.filter_groups.metric=acc
-    +algorithm.filter_groups.max_num_gen_batches=1
+    +algorithm.filter_groups.enable=${FILTER_GROUPS_ENABLE:-False}
+    +algorithm.filter_groups.metric=${FILTER_GROUPS_METRIC:-acc}
+    +algorithm.filter_groups.max_num_gen_batches=${FILTER_GROUPS_MAX_NUM_GEN_BATCHES:-1}
 )
 
 TRAINER=(
@@ -274,6 +277,8 @@ TRAINER=(
     trainer.test_freq=${TEST_FREQ:-1}
     trainer.max_actor_ckpt_to_keep=${MAX_ACTOR_CKPT_TO_KEEP:-2}
     trainer.max_critic_ckpt_to_keep=${MAX_CRITIC_CKPT_TO_KEEP:-2}
+    +trainer.target_response_tokens=${TARGET_RESPONSE_TOKENS:-0}
+    +trainer.best_checkpoint_keep_latest_unscheduled=${BEST_CHECKPOINT_KEEP_LATEST_UNSCHEDULED:-False}
     trainer.total_epochs=${TOTAL_EPOCHS:-1}
     trainer.total_training_steps=${TOTAL_TRAINING_STEPS}
     trainer.resume_mode=${RESUME_MODE:-disable}

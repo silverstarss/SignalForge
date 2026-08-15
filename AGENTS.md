@@ -1,36 +1,53 @@
-# AGENTS.md — Experiment A / GRPO Baseline
+# AGENTS.md — Signal Forge RLVR Experiments
 
 ## 1. Project status
 
 This repository is an LLM RLVR/post-training research project based on veRL.
 
-The immediate goal is **Experiment A: a clean standard GRPO baseline** using
-Qwen2.5-1.5B-Instruct on a fixed mixture of GSM8K and MATH Level 3.
+**Experiment A is complete and frozen.** Formal A trained Qwen2.5-1.5B-Instruct
+for 700 optimizer steps with standard GRPO on the fixed GSM8K/MATH Level 3
+mixture. A remains the immutable baseline: do not add Dynamic Sampling,
+Clip-Higher, length shaping, curriculum sampling, LoRA, or reward-shaping changes
+to any A rerun or A analysis path.
 
-The broader controlled ablation plan is:
+Current formal A artifacts:
 
-- **A — GRPO baseline:** random prompt sampling and standard GRPO.
-- **B — A + Dynamic Sampling:** reject all-correct and all-wrong response groups.
-- **C — B + Clip-Higher:** asymmetric clipping inspired by DAPO.
-- **D — C + Overlong Reward Shaping:** penalize overly long responses before the hard limit.
-- **E — D + Adaptive Curriculum Sampling:** change prompt sampling probabilities using
-  prompt success rate, reward variance and optionally learning progress, while retaining
-  uniform replay.
+- run: `A_1p5b_formal_a_700step`;
+- primary final checkpoint: `global_step_700`;
+- best-validation checkpoint: `global_step_640`;
+- primary rollout response-token budget for B comparisons: `9,605,733`;
+- validation manifest: `data/processed/signal_forge_v1/validation_id_effective_498.parquet`.
 
-Only **A0/A** is in scope now. Do not implement B–E until A is stable and frozen. 
-Experiment A is the immutable GRPO baseline.
-Do not add dynamic sampling, asymmetric clipping,
-length shaping, or curriculum logic to Experiment A.
+The active engineering task is **Experiment B: A + Dynamic Sampling**.
+B must reject all-correct and all-wrong rollout groups using raw correctness,
+replenish with fresh prompts until the fixed accepted batch size is reached,
+count rejected generations/tokens in the budget, and preserve all other A
+protocol settings.
+
+The controlled ablation plan is now:
+
+- **A — GRPO baseline:** complete and frozen.
+- **B — A + Dynamic Sampling:** active.
+- **C — Clip-Higher:** dropped; do not implement unless the research scope is explicitly reopened.
+- **D — Overlong Reward Shaping:** not in scope now.
+- **E — Adaptive Curriculum Sampling:** not in scope now.
 
 ## 2. Current task
 
-Build and run **A0**, a 2–3 optimizer-step smoke test of the Experiment A pipeline.
+Bring Experiment B from smoke-test code to a formal-run-ready state.
 
-A0 is successful when the full chain works:
+The B smoke test has run through 3 optimizer steps and showed that Dynamic
+Sampling metrics are emitted and that accepted groups are mixed-only. The smoke
+log ended with a known post-completion `DataLoader worker ... Killed` traceback
+after the step-3 checkpoint and validation, matching prior A-style shutdown
+behavior; this is accepted for now and is not blocking Formal B planning.
 
-`dataset -> chat prompt -> n=8 rollout -> boxed-only Math-Verify reward -> GRPO advantage -> actor update -> validation -> checkpoint save/reload -> logs`
+Immediate B readiness criteria:
 
-A0 is not an accuracy experiment. Do not tune based on the 2–3-step learning curve.
+1. A final-eval/reload path for Formal A remains reproducible enough for analysis.
+2. Each B optimizer step uses exactly 5 accepted prompt groups and `n=8` responses per group.
+3. Rejected prompt groups, rejected responses, and rejected response tokens are logged and included in the budget.
+4. Formal B uses the same initial checkpoint, prompt, verifier, training pool, validation manifest, optimizer settings, and decoding settings as A except for Dynamic Sampling.
 
 ## 3. Existing work that must be reused
 
@@ -373,11 +390,8 @@ After every meaningful change:
 
 ## 14. Immediate next actions
 
-1. Locate and document the previous working 0.5B launch path and the failed 1.5B config/log.
-2. Pin the veRL training environment and verify CUDA on the target GPU.
-3. Prepare the fixed 60/40 GSM8K/MATH Level 3 train and validation data.
-4. Add the thin Math-Verify reward adapter.
-5. Build and pass the 100+ rollout reward-equivalence fixture.
-6. Run a one-batch no-update or minimal-update integration check if useful.
-7. Run the accepted 2–3-step A0 smoke test.
-8. Produce an A0 report with the acceptance checklist and memory/timing breakdown.
+1. Verify B metrics: `dynamic_sampling/*`, `budget/*`, validation split metrics, extraction/format rates, response length, entropy/KL/clip fraction/grad norm.
+2. Freeze the Formal B launch command, checkpoint retention policy, and token-budget stopping/monitoring procedure.
+3. Commit the B code and updated experiment documentation with a clear message.
+4. Push `dev` after switching `origin` from HTTPS to SSH or otherwise fixing GitHub authentication.
+5. Start Formal B after the B protocol is frozen.

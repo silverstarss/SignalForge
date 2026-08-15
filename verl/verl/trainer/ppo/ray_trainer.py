@@ -20,6 +20,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
+import shutil
 import uuid
 import time
 from collections import defaultdict
@@ -153,16 +154,64 @@ def _cfg_get(config, key, default=None):
     return getattr(config, key, default)
 
 
-def _filter_reward_infos(reward_extra_infos_dict: dict[str, list], keep_mask: np.ndarray, batch_size: int) -> dict[str, list]:
+def _filter_reward_infos_by_indices(
+    reward_extra_infos_dict: dict[str, list], keep_indices: np.ndarray, batch_size: int
+) -> dict[str, list]:
     filtered = {}
     for key, values in reward_extra_infos_dict.items():
         if hasattr(values, "tolist"):
             values = values.tolist()
         if isinstance(values, list) and len(values) == batch_size:
-            filtered[key] = np.asarray(values, dtype=object)[keep_mask].tolist()
+            filtered[key] = np.asarray(values, dtype=object)[keep_indices].tolist()
         else:
             filtered[key] = values
     return filtered
+
+
+def _concat_reward_infos(reward_info_parts: list[dict[str, list]]) -> dict[str, list]:
+    merged: dict[str, list] = {}
+    for reward_infos in reward_info_parts:
+        for key, values in reward_infos.items():
+            if hasattr(values, "tolist"):
+                values = values.tolist()
+            if isinstance(values, list):
+                merged.setdefault(key, []).extend(values)
+    return merged
+
+
+def _count_prompt_groups(batch: DataProto) -> int:
+    uids = np.asarray(batch.non_tensor_batch.get("uid", []), dtype=object).tolist()
+    return len(set(uid for uid in uids if uid not in (None, "")))
+
+
+def _refresh_training_batch_meta_info(batch: DataProto) -> None:
+    batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
+    images_seqlens_all = []
+    for multi_modal_input in batch.non_tensor_batch.get("multi_modal_inputs", []):
+        if isinstance(multi_modal_input, dict) and "image_grid_thw" in multi_modal_input:
+            images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
+    batch.meta_info["images_seqlens"] = images_seqlens_all
+
+
+def _select_first_prompt_groups(
+    batch: DataProto, reward_extra_infos_dict: dict[str, list], prompt_group_count: int
+) -> tuple[DataProto, dict[str, list]]:
+    uids = np.asarray(batch.non_tensor_batch["uid"], dtype=object).tolist()
+    selected_uids = []
+    selected_uid_set = set()
+    keep_indices = []
+    for idx, uid in enumerate(uids):
+        if uid not in selected_uid_set:
+            if len(selected_uids) >= prompt_group_count:
+                continue
+            selected_uids.append(uid)
+            selected_uid_set.add(uid)
+        if uid in selected_uid_set:
+            keep_indices.append(idx)
+
+    keep_indices_np = np.asarray(keep_indices, dtype=np.int64)
+    selected_batch = batch.select_idxs(keep_indices_np)
+    return selected_batch, _filter_reward_infos_by_indices(reward_extra_infos_dict, keep_indices_np, len(batch))
 
 
 def apply_filter_groups(
@@ -171,7 +220,8 @@ def apply_filter_groups(
     filter_groups_config,
     ppo_mini_batch_size: int,
 ) -> tuple[DataProto, dict[str, list], dict[str, float]]:
-    """Drop all-correct/all-wrong GRPO groups and report the compute budget."""
+    """Return only mixed GRPO groups; all-correct/all-wrong groups are rejected."""
+    del ppo_mini_batch_size
     if not _cfg_get(filter_groups_config, "enable", False):
         return batch, reward_extra_infos_dict, {}
 
@@ -201,38 +251,25 @@ def apply_filter_groups(
 
     raw_group_count = len(uid_to_indices)
     accepted_group_count = len(accepted_groups)
-    dropped_for_minibatch = 0
-    if ppo_mini_batch_size and ppo_mini_batch_size > 0 and accepted_group_count > 0:
-        sample_count = sum(len(indices) for indices in accepted_groups)
-        while accepted_groups and sample_count % ppo_mini_batch_size != 0:
-            sample_count -= len(accepted_groups.pop())
-            dropped_for_minibatch += 1
+    rejected_group_count = raw_group_count - accepted_group_count
+    keep_indices = np.asarray([idx for group in accepted_groups for idx in group], dtype=np.int64)
 
     metrics = {
         "dynamic_sampling/group_count": float(raw_group_count),
-        "dynamic_sampling/accepted_group_count": float(len(accepted_groups)),
-        "dynamic_sampling/accepted_group_ratio": float(len(accepted_groups) / raw_group_count) if raw_group_count else 0.0,
+        "dynamic_sampling/accepted_group_count": float(accepted_group_count),
+        "dynamic_sampling/rejected_group_count": float(rejected_group_count),
+        "dynamic_sampling/all_correct_group_count": float(all_correct_groups),
+        "dynamic_sampling/all_wrong_group_count": float(all_wrong_groups),
+        "dynamic_sampling/accepted_group_ratio": float(accepted_group_count / raw_group_count) if raw_group_count else 0.0,
         "dynamic_sampling/all_correct_group_ratio": float(all_correct_groups / raw_group_count) if raw_group_count else 0.0,
         "dynamic_sampling/all_wrong_group_ratio": float(all_wrong_groups / raw_group_count) if raw_group_count else 0.0,
-        "dynamic_sampling/rejected_group_ratio": float((raw_group_count - accepted_group_count) / raw_group_count)
-        if raw_group_count
-        else 0.0,
-        "dynamic_sampling/dropped_for_minibatch_group_count": float(dropped_for_minibatch),
+        "dynamic_sampling/rejected_group_ratio": float(rejected_group_count / raw_group_count) if raw_group_count else 0.0,
         "dynamic_sampling/raw_rollout_count": float(batch_size),
-        "dynamic_sampling/extra_rollout_count": 0.0,
+        "dynamic_sampling/accepted_rollout_count": float(len(keep_indices)),
+        "dynamic_sampling/rejected_rollout_count": float(batch_size - len(keep_indices)),
+        "dynamic_sampling/accepted_rollout_ratio": float(len(keep_indices) / batch_size) if batch_size else 0.0,
+        "dynamic_sampling/raw_response_tokens": float(batch.batch["response_mask"].sum().detach().cpu().item()),
     }
-
-    if not accepted_groups:
-        metrics["dynamic_sampling/fallback_unfiltered"] = 1.0
-        return batch, reward_extra_infos_dict, metrics
-
-    keep_indices = np.asarray([idx for group in accepted_groups for idx in group], dtype=np.int64)
-    keep_mask = np.zeros(batch_size, dtype=bool)
-    keep_mask[keep_indices] = True
-    metrics["dynamic_sampling/accepted_rollout_count"] = float(len(keep_indices))
-    metrics["dynamic_sampling/rejected_rollout_count"] = float(batch_size - len(keep_indices))
-    metrics["dynamic_sampling/accepted_rollout_ratio"] = float(len(keep_indices) / batch_size) if batch_size else 0.0
-    metrics["dynamic_sampling/raw_response_tokens"] = float(batch.batch["response_mask"].sum().detach().cpu().item())
 
     filtered_batch = batch.select_idxs(keep_indices)
     for key, value in list(filtered_batch.meta_info.items()):
@@ -241,7 +278,7 @@ def apply_filter_groups(
     metrics["dynamic_sampling/accepted_response_tokens"] = float(
         filtered_batch.batch["response_mask"].sum().detach().cpu().item()
     )
-    return filtered_batch, _filter_reward_infos(reward_extra_infos_dict, keep_mask, batch_size), metrics
+    return filtered_batch, _filter_reward_infos_by_indices(reward_extra_infos_dict, keep_indices, batch_size), metrics
 
 def compute_spec_decode_metrics(
     spec_drafts,
@@ -481,6 +518,7 @@ class RayPPOTrainer:
         self._budget_tracker = RolloutBudgetTracker()
         self._best_validation_metric = None
         self._best_validation_step = None
+        self._best_checkpoint_path = None
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -876,6 +914,8 @@ class RayPPOTrainer:
                 "val/best_step": float(self._best_validation_step if self._best_validation_step is not None else -1),
             }
 
+        previous_best_step = self._best_validation_step
+        previous_best_checkpoint_path = self._best_checkpoint_path
         self._best_validation_metric = metric_value
         self._best_validation_step = int(self.global_steps)
         checkpoint_dir = self.config.trainer.default_local_dir
@@ -894,6 +934,21 @@ class RayPPOTrainer:
                     checkpoint_path = expected_checkpoint_path
                     checkpoint_saved_on_update = True
 
+        deleted_previous_best_checkpoint = False
+        keep_latest_unscheduled = self.config.trainer.get("best_checkpoint_keep_latest_unscheduled", False)
+        if keep_latest_unscheduled and previous_best_checkpoint_path and previous_best_checkpoint_path != checkpoint_path:
+            save_freq = int(self.config.trainer.get("save_freq", -1) or -1)
+            previous_step = int(previous_best_step) if previous_best_step is not None else -1
+            previous_is_scheduled = save_freq > 0 and previous_step > 0 and previous_step % save_freq == 0
+            if not previous_is_scheduled and os.path.isdir(previous_best_checkpoint_path):
+                print(
+                    "Removing previous unscheduled best checkpoint "
+                    f"global_step_{previous_step}: {previous_best_checkpoint_path}"
+                )
+                shutil.rmtree(previous_best_checkpoint_path)
+                deleted_previous_best_checkpoint = True
+
+        self._best_checkpoint_path = checkpoint_path
         metadata = {
             "metric_name": metric_name,
             "metric_value": metric_value,
@@ -912,6 +967,7 @@ class RayPPOTrainer:
             "val/best_step": float(self.global_steps),
             "val/best_checkpoint_available": float(checkpoint_path is not None),
             "val/best_checkpoint_saved_on_update": float(checkpoint_saved_on_update),
+            "val/best_previous_unscheduled_checkpoint_deleted": float(deleted_previous_best_checkpoint),
         }
 
     def _merge_validation_results(self, result_a, result_b):
@@ -1587,6 +1643,8 @@ class RayPPOTrainer:
 
         SkipManager.set_step(self.global_steps)
 
+        dynamic_filter_state: dict[str, Any] | None = None
+
         prev_step_profile = False
         curr_step_profile = (
             self.global_steps in self.config.global_profiler.steps
@@ -1788,38 +1846,185 @@ class RayPPOTrainer:
                         candidate_prompt_tokens = int(
                             batch.batch["attention_mask"][:, :-response_width].sum().detach().cpu().item()
                         )
-                        candidate_response_tokens = int(
-                            batch.batch["response_mask"].sum().detach().cpu().item()
-                        )
+                        candidate_response_tokens = int(batch.batch["response_mask"].sum().detach().cpu().item())
                         raw_correctness_values = reward_extra_infos_dict.get(
                             "raw_correctness", reward_extra_infos_dict.get("acc", [])
                         )
-                        metrics.update(compute_reward_extra_metrics(reward_extra_infos_dict))
-                        metrics.update(
-                            compute_group_metrics(
-                                uids=candidate_uids,
-                                raw_correctness=raw_correctness_values,
-                                expected_group_size=self.config.actor_rollout_ref.rollout.n,
-                            )
-                        )
-                        metrics.update(
-                            compute_length_metrics(
-                                response_lengths=candidate_response_lengths,
-                                raw_correctness=raw_correctness_values,
-                                max_response_length=batch.batch["responses"].shape[-1],
-                            )
-                        )
+                        candidate_reward_extra_infos_dict = reward_extra_infos_dict
+                        filter_groups_config = self.config.algorithm.get("filter_groups", None)
+                        dynamic_filter_enabled = _cfg_get(filter_groups_config, "enable", False)
 
                         batch, reward_extra_infos_dict, filter_group_metrics = apply_filter_groups(
                             batch=batch,
                             reward_extra_infos_dict=reward_extra_infos_dict,
-                            filter_groups_config=self.config.algorithm.get("filter_groups", None),
+                            filter_groups_config=filter_groups_config,
                             ppo_mini_batch_size=self.config.actor_rollout_ref.actor.ppo_mini_batch_size,
                         )
-                        metrics.update(filter_group_metrics)
-                        accepted_uids = batch.non_tensor_batch.get("uid", [])
-                        accepted_uid_values = np.asarray(accepted_uids, dtype=object).tolist()
-                        accepted_group_count = len(set(uid for uid in accepted_uid_values if uid not in (None, "")))
+
+                        if dynamic_filter_enabled:
+                            if dynamic_filter_state is None:
+                                dynamic_filter_state = {
+                                    "accepted_batches": [],
+                                    "accepted_reward_infos": [],
+                                    "candidate_reward_infos": [],
+                                    "candidate_uids": [],
+                                    "candidate_raw_correctness": [],
+                                    "candidate_response_lengths": [],
+                                    "candidate_group_count": 0,
+                                    "accepted_group_count_total": 0,
+                                    "all_correct_group_count": 0,
+                                    "all_wrong_group_count": 0,
+                                    "responses_generated": 0,
+                                    "prompt_tokens_generated": 0,
+                                    "response_tokens_generated": 0,
+                                    "num_gen_batches": 0,
+                                }
+
+                            dynamic_filter_state["num_gen_batches"] += 1
+                            dynamic_filter_state["candidate_group_count"] += candidate_group_count
+                            dynamic_filter_state["accepted_group_count_total"] += int(
+                                filter_group_metrics.get("dynamic_sampling/accepted_group_count", 0.0)
+                            )
+                            dynamic_filter_state["all_correct_group_count"] += int(
+                                filter_group_metrics.get("dynamic_sampling/all_correct_group_count", 0.0)
+                            )
+                            dynamic_filter_state["all_wrong_group_count"] += int(
+                                filter_group_metrics.get("dynamic_sampling/all_wrong_group_count", 0.0)
+                            )
+                            dynamic_filter_state["responses_generated"] += candidate_batch_size
+                            dynamic_filter_state["prompt_tokens_generated"] += candidate_prompt_tokens
+                            dynamic_filter_state["response_tokens_generated"] += candidate_response_tokens
+                            dynamic_filter_state["candidate_reward_infos"].append(candidate_reward_extra_infos_dict)
+                            dynamic_filter_state["candidate_uids"].extend(candidate_uid_values)
+                            dynamic_filter_state["candidate_raw_correctness"].extend(
+                                np.asarray(raw_correctness_values, dtype=object).tolist()
+                            )
+                            dynamic_filter_state["candidate_response_lengths"].extend(candidate_response_lengths)
+
+                            accepted_groups_this_batch = _count_prompt_groups(batch)
+                            if accepted_groups_this_batch > 0:
+                                dynamic_filter_state["accepted_batches"].append(batch)
+                                dynamic_filter_state["accepted_reward_infos"].append(reward_extra_infos_dict)
+
+                            num_prompt_in_batch = sum(
+                                _count_prompt_groups(part) for part in dynamic_filter_state["accepted_batches"]
+                            )
+                            prompt_bsz = int(self.config.data.train_batch_size)
+                            max_num_gen_batches = int(_cfg_get(filter_groups_config, "max_num_gen_batches", 0) or 0)
+                            if num_prompt_in_batch < prompt_bsz:
+                                if max_num_gen_batches <= 0 or dynamic_filter_state["num_gen_batches"] < max_num_gen_batches:
+                                    print(
+                                        f"Dynamic sampling accepted {num_prompt_in_batch}/{prompt_bsz} prompt groups "
+                                        f"after {dynamic_filter_state['num_gen_batches']} generation batch(es); keep generating."
+                                    )
+                                    # Generation put rollout replicas to sleep; wake them before the next candidate batch.
+                                    self.checkpoint_manager.update_weights(self.global_steps)
+                                    continue
+                                raise ValueError(
+                                    f"Dynamic sampling accepted only {num_prompt_in_batch}/{prompt_bsz} prompt groups "
+                                    f"after max_num_gen_batches={max_num_gen_batches}. Check data/model/reward signal."
+                                )
+
+                            for accepted_part in dynamic_filter_state["accepted_batches"]:
+                                accepted_part.meta_info.pop("global_token_num", None)
+                                accepted_part.meta_info.pop("images_seqlens", None)
+                            batch = DataProto.concat(dynamic_filter_state["accepted_batches"])
+                            _refresh_training_batch_meta_info(batch)
+                            reward_extra_infos_dict = _concat_reward_infos(dynamic_filter_state["accepted_reward_infos"])
+                            batch, reward_extra_infos_dict = _select_first_prompt_groups(
+                                batch, reward_extra_infos_dict, prompt_bsz
+                            )
+                            _refresh_training_batch_meta_info(batch)
+                            accepted_group_count = _count_prompt_groups(batch)
+                            candidate_reward_extra_infos = _concat_reward_infos(
+                                dynamic_filter_state["candidate_reward_infos"]
+                            )
+                            metrics.update(compute_reward_extra_metrics(candidate_reward_extra_infos))
+                            metrics.update(
+                                compute_group_metrics(
+                                    uids=dynamic_filter_state["candidate_uids"],
+                                    raw_correctness=dynamic_filter_state["candidate_raw_correctness"],
+                                    expected_group_size=self.config.actor_rollout_ref.rollout.n,
+                                )
+                            )
+                            metrics.update(
+                                compute_length_metrics(
+                                    response_lengths=dynamic_filter_state["candidate_response_lengths"],
+                                    raw_correctness=dynamic_filter_state["candidate_raw_correctness"],
+                                    max_response_length=batch.batch["responses"].shape[-1],
+                                )
+                            )
+                            generated_groups = int(dynamic_filter_state["candidate_group_count"])
+                            rejected_groups = max(generated_groups - accepted_group_count, 0)
+                            generated_rollouts = int(dynamic_filter_state["responses_generated"])
+                            accepted_rollouts = len(batch)
+                            generated_response_tokens = int(dynamic_filter_state["response_tokens_generated"])
+                            accepted_response_tokens = int(batch.batch["response_mask"].sum().detach().cpu().item())
+                            metrics.update(
+                                {
+                                    "dynamic_sampling/num_gen_batches": float(dynamic_filter_state["num_gen_batches"]),
+                                    "dynamic_sampling/group_count": float(generated_groups),
+                                    "dynamic_sampling/accepted_group_count": float(accepted_group_count),
+                                    "dynamic_sampling/rejected_group_count": float(rejected_groups),
+                                    "dynamic_sampling/all_correct_group_count": float(
+                                        dynamic_filter_state["all_correct_group_count"]
+                                    ),
+                                    "dynamic_sampling/all_wrong_group_count": float(
+                                        dynamic_filter_state["all_wrong_group_count"]
+                                    ),
+                                    "dynamic_sampling/accepted_group_ratio": float(accepted_group_count / generated_groups)
+                                    if generated_groups
+                                    else 0.0,
+                                    "dynamic_sampling/all_correct_group_ratio": float(
+                                        dynamic_filter_state["all_correct_group_count"] / generated_groups
+                                    )
+                                    if generated_groups
+                                    else 0.0,
+                                    "dynamic_sampling/all_wrong_group_ratio": float(
+                                        dynamic_filter_state["all_wrong_group_count"] / generated_groups
+                                    )
+                                    if generated_groups
+                                    else 0.0,
+                                    "dynamic_sampling/rejected_group_ratio": float(rejected_groups / generated_groups)
+                                    if generated_groups
+                                    else 0.0,
+                                    "dynamic_sampling/raw_rollout_count": float(generated_rollouts),
+                                    "dynamic_sampling/accepted_rollout_count": float(accepted_rollouts),
+                                    "dynamic_sampling/rejected_rollout_count": float(
+                                        max(generated_rollouts - accepted_rollouts, 0)
+                                    ),
+                                    "dynamic_sampling/extra_rollout_count": float(max(generated_rollouts - accepted_rollouts, 0)),
+                                    "dynamic_sampling/raw_response_tokens": float(generated_response_tokens),
+                                    "dynamic_sampling/accepted_response_tokens": float(accepted_response_tokens),
+                                    "dynamic_sampling/rejected_response_tokens": float(
+                                        max(generated_response_tokens - accepted_response_tokens, 0)
+                                    ),
+                                }
+                            )
+                            candidate_group_count = generated_groups
+                            candidate_batch_size = generated_rollouts
+                            candidate_prompt_tokens = int(dynamic_filter_state["prompt_tokens_generated"])
+                            candidate_response_tokens = generated_response_tokens
+                            dynamic_filter_state = None
+                        else:
+                            metrics.update(compute_reward_extra_metrics(reward_extra_infos_dict))
+                            metrics.update(
+                                compute_group_metrics(
+                                    uids=candidate_uids,
+                                    raw_correctness=raw_correctness_values,
+                                    expected_group_size=self.config.actor_rollout_ref.rollout.n,
+                                )
+                            )
+                            metrics.update(
+                                compute_length_metrics(
+                                    response_lengths=candidate_response_lengths,
+                                    raw_correctness=raw_correctness_values,
+                                    max_response_length=batch.batch["responses"].shape[-1],
+                                )
+                            )
+                            metrics.update(filter_group_metrics)
+                            accepted_group_count = _count_prompt_groups(batch)
+
                         n_gpus_for_budget = self.resource_pool_manager.get_n_gpus()
                         metrics.update(
                             self._budget_tracker.update(
@@ -1832,6 +2037,34 @@ class RayPPOTrainer:
                                 n_gpus=n_gpus_for_budget,
                             )
                         )
+                        target_response_tokens = self.config.trainer.get("target_response_tokens", None)
+                        if target_response_tokens is not None and float(target_response_tokens) > 0.0:
+                            target_response_tokens = float(target_response_tokens)
+                            cumulative_response_tokens = float(
+                                metrics.get("budget/response_tokens_generated_cumulative", 0.0)
+                            )
+                            remaining_response_tokens = max(target_response_tokens - cumulative_response_tokens, 0.0)
+                            target_reached = cumulative_response_tokens >= target_response_tokens
+                            metrics.update(
+                                {
+                                    "budget/target_response_tokens": target_response_tokens,
+                                    "budget/target_response_tokens_remaining": remaining_response_tokens,
+                                    "budget/target_response_tokens_reached": float(target_reached),
+                                }
+                            )
+                            if target_reached:
+                                is_last_step = True
+                                self.total_training_steps = min(self.total_training_steps, self.global_steps)
+                                try:
+                                    progress_bar.total = self.global_steps
+                                    progress_bar.refresh()
+                                except Exception:
+                                    pass
+                                print(
+                                    "Target response-token budget reached: "
+                                    f"{cumulative_response_tokens:.0f} >= {target_response_tokens:.0f}; "
+                                    f"stopping after global_step_{self.global_steps}."
+                                )
 
                         # Compute rollout correction: IS weights, rejection sampling, and metrics
                         # Only runs in decoupled mode (computes once per batch using stable π_old)

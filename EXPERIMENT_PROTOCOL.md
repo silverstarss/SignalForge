@@ -6,10 +6,10 @@
 - **Primary model:** `Qwen2.5-1.5B-Instruct`
 - **Training framework:** `veRL`
 - **Task type:** Mathematical RLVR
-- **Current implementation stage:** Experiment A — GRPO Baseline
-- **Protocol version:** `v1.0`
-- **Protocol status:** Stage 0 frozen for 1.5B A preflight/regression
-- **Last updated:** 2026-08-08
+- **Current implementation stage:** Experiment B — Dynamic Sampling formal preparation
+- **Protocol version:** `v1.1`
+- **Protocol status:** Formal A complete and frozen; B smoke completed; C dropped
+- **Last updated:** 2026-08-15
 
 > This document is the source of truth for all Signal Forge experiments.
 > Any change that affects model, data, reward, rollout, optimization, evaluation,
@@ -25,10 +25,9 @@ reinforcement learning with verifiable rewards on a 1.5B language model?
 More specifically, this project studies whether:
 
 1. removing prompts whose rollout groups are entirely correct or entirely wrong;
-2. relaxing clipping for positive-advantage updates;
-3. penalizing overlong responses;
-4. adaptively sampling prompts according to pass rate, raw reward variance, and
-   learning progress;
+2. penalizing overlong responses in a later variant if the scope is reopened;
+3. adaptively sampling prompts according to pass rate, raw reward variance, and
+   learning progress in a later variant if the scope is reopened;
 
 can improve the sample efficiency, training stability, or final mathematical
 reasoning performance of `Qwen2.5-1.5B-Instruct`.
@@ -172,10 +171,15 @@ train:
   rows: 3475
   gsm8k: 2085
   math_level_3: 1390
-validation_id:
+validation_id_raw:
   rows: 500
   gsm8k: 300
   math_level_3: 200
+validation_id_effective:
+  rows: 498
+  gsm8k: 300
+  math_level_3: 198
+  file: data/processed/signal_forge_v1/validation_id_effective_498.parquet
 test_id:
   rows: 2450
   gsm8k: 1319
@@ -183,8 +187,10 @@ test_id:
 math_archive_sha256: 8bbd824cbbaf46fe86ccdafaf443c42cbf4773f16cadaf927910d3ddec76b28f
 ```
 
-`validation_id` is the only split used for checkpoint selection. `test_id`
-must be evaluated only after checkpoint selection is complete.
+`validation_id_effective_498` is the fixed validation manifest used for checkpoint
+selection and final validation reports. It removes two raw validation rows whose
+rendered prompts exceed the frozen prompt-length limit. `test_id` must be
+evaluated only after checkpoint selection is complete.
 
 ### 3.7 Validation And Checkpoint Selection
 
@@ -201,7 +207,8 @@ budget.
 
 ### 3.8 Stage Gates Before Formal A
 
-Before formal Experiment A starts, complete these gates in order:
+These gates are complete for Formal A and are retained as historical protocol
+requirements. Before any future A rerun, complete these gates in order:
 
 1. Stage 0: freeze data, prompt, verifier, rollout shape, validation protocol,
    software/git version, and checkpoint-selection rule.
@@ -219,28 +226,76 @@ utilization.
 
 ### 3.9 Formal Compute Budget
 
-The formal Experiment A compute budget is:
+Formal Experiment A used the following fixed-budget run:
 
-```text
-TBD after 1.5B 40-step regression
+```yaml
+experiment: A_1p5b_formal_a_700step
+optimizer_steps: 700
+generated_responses: 28000
+generated_response_tokens: 9605733
+generated_rollout_tokens: 12475477
+accepted_prompt_groups: 3500
+gpu_hours_estimate: 3.4504811925911114
+wall_time_seconds: 12421.732293328001
 ```
 
-It must be frozen before formal A starts and must include:
-
-- `max_optimizer_steps`;
-- `max_generated_responses`;
-- `target_rollout_response_tokens`;
-- GPU-hour upper bound.
-
-The primary A-E fairness budget is matched rollout response tokens or generated
-responses, not epochs alone and not optimizer steps alone. Discarded rollout
-groups in later variants still count toward generated-response and token budget.
+For B and later variants, the primary fair-comparison budget is A's generated
+response-token count: `9,605,733`. Discarded rollout groups in Dynamic Sampling
+still count toward generated responses, generated response tokens, rollout
+tokens, wall time, and GPU hours. Optimizer steps are reported but are not the
+primary matching budget.
 
 Formal runs may stop early only for correctness or infrastructure failures such
 as NaN/Inf, OOM, verifier failure, reward collapse, extraction/format failure
 spikes, KL/entropy/gradient instability, response-length collapse, memory leak,
 or checkpoint failure. Flat recent validation alone is not a reason to change a
 formal run's compute budget.
+
+### 3.10 Formal A Results And Final Evaluation Check
+
+Formal A checkpoint selection used in-run validation on the fixed 498-prompt
+manifest:
+
+| checkpoint | overall | GSM8K | MATH L3 | notes |
+| --- | ---: | ---: | ---: | --- |
+| base step0 | 79.92 | 88.33 | 67.17 | in-run validation before training |
+| step640 | 84.54 | 90.00 | 76.26 | best validation checkpoint |
+| step700 | 81.73 | 87.67 | 72.73 | fixed-budget final checkpoint |
+
+A separate same-protocol final-evaluation pass was also run for base, step640,
+and step700. Greedy vLLM evaluation is not bitwise reproducible across restarts,
+so these numbers are treated as a final check rather than as the checkpoint
+selection source:
+
+| checkpoint | overall | GSM8K | MATH L3 |
+| --- | ---: | ---: | ---: |
+| base | 78.31 | 87.33 | 64.65 |
+| step640 | 82.93 | 90.00 | 72.22 |
+| step700 | 80.52 | 87.67 | 69.70 |
+
+### 3.11 Experiment B Smoke Status
+
+B smoke run `B_1p5b_dynamic_sampling_smoke` completed 3 optimizer steps with
+Dynamic Sampling enabled. The run emitted `dynamic_sampling/*` and `budget/*`
+metrics and kept exactly 5 accepted prompt groups per optimizer step.
+
+Cumulative B smoke metrics:
+
+```yaml
+optimizer_steps: 3
+candidate_prompt_groups: 30
+accepted_prompt_groups: 15
+rejected_prompt_groups: 15
+responses_generated: 240
+response_tokens_generated: 77077
+response_tokens_per_optimizer_step: 25692.333333333332
+validation_prompts_per_point: 498
+```
+
+Per-step accepted groups were 5/5/5. Generated candidate batches were 3, 2, and
+1 respectively. A known post-completion `DataLoader worker ... Killed` traceback
+appeared after final validation/checkpoint, matching the same shutdown behavior
+seen in A-style runs; it does not change the recorded B smoke metrics.
 
 ---
 
@@ -297,6 +352,10 @@ Experiment A must establish:
 Experiment A is considered valid only if the full data, reward, rollout,
 optimization, logging, evaluation, checkpoint, and resume paths work correctly.
 
+Formal A is complete and frozen. Primary model is fixed-budget step700; secondary
+model is best-validation step640. A generated `9,605,733` response tokens and is
+the budget reference for B.
+
 ---
 
 ## 4.2 Experiment B — GRPO + Dynamic Sampling
@@ -331,40 +390,43 @@ tokens that produce useful relative-advantage learning signals.
 - accepted groups per optimizer step;
 - additional rollout cost introduced by rejection sampling.
 
----
+### Implementation Status
 
-## 4.3 Experiment C — Dynamic Sampling + Clip-Higher
+B is implemented by enabling `algorithm.filter_groups` with metric
+`raw_correctness`, using `data.gen_batch_size` for candidate batches, and
+replenishing with fresh prompts until `data.train_batch_size` accepted mixed
+groups are available or `max_num_gen_batches` is reached. Rejected groups and
+tokens are included in budget metrics.
 
-### Change From B
+Formal B must start from the original Qwen2.5-1.5B-Instruct checkpoint, not from
+A step640 or step700.
 
-Use asymmetric clipping inspired by DAPO:
-
-- retain stricter clipping for negative-advantage updates;
-- use a wider upper clipping bound for positive-advantage updates.
+Formal B stopping and checkpoint rules:
 
 ```yaml
-clip_higher:
-  enabled: true
-  clip_low: TODO
-  clip_high_positive: TODO
+total_training_steps_ceiling: 700
+target_response_tokens: 9605733
+checkpoint_save_freq: 50
+best_checkpoint_metric: val/pass_at_1
+best_checkpoint_save_on_update: true
+best_checkpoint_keep_latest_unscheduled: true
 ```
 
-### Hypothesis
+The trainer stops automatically after the first optimizer step whose cumulative
+`budget/response_tokens_generated_cumulative` reaches or exceeds `9,605,733`.
+That budget-reaching step is treated as final: save checkpoint and run final
+validation. Scheduled 50-step checkpoints are retained. If validation improves at
+an unscheduled step, a full best checkpoint is saved; when a later unscheduled
+best appears, the previous unscheduled best checkpoint is deleted. Scheduled
+checkpoints are never deleted by the best-checkpoint cleanup rule.
 
-A wider positive clipping range may allow low-probability but high-value tokens
-to receive stronger positive updates, improving exploration and reducing early
-policy collapse.
+---
 
-### Additional Required Metrics
+## 4.3 Experiment C — Dropped
 
-- positive-advantage clip fraction;
-- negative-advantage clip fraction;
-- total clip fraction;
-- policy entropy;
-- KL divergence;
-- response diversity;
-- gradient norm;
-- instability or divergence events.
+Clip-Higher is dropped from the active plan. Do not implement asymmetric clipping
+or change PPO/GRPO clipping behavior unless the research scope is explicitly
+reopened and this protocol is amended before any run starts.
 
 ---
 
