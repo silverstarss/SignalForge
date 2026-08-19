@@ -22,6 +22,15 @@ from signal_forge.hive.stage1 import (
     compute_exploration_update,
     compute_reward_history_signal,
 )
+from signal_forge.hive.stage2 import (
+    EntropyScoredPrompt,
+    Stage2BatchResult,
+    Stage2Config,
+    Stage2Diagnostics,
+    Stage2PromptRecord,
+    Stage2Selector,
+    compute_stage2_counts,
+)
 from signal_forge.hive.state import (
     HIVE_STATE_FILENAME,
     HiveSelectorSnapshot,
@@ -37,6 +46,7 @@ from signal_forge.hive.state import (
 __all__ = [
     "ExplorationControllerConfig",
     "ExplorationUpdate",
+    "EntropyScoredPrompt",
     "HIVE_STATE_FILENAME",
     "HiveSelectorSnapshot",
     "HiveSelectorState",
@@ -55,12 +65,18 @@ __all__ = [
     "Stage1Diagnostics",
     "Stage1PromptDecision",
     "Stage1StepSelector",
+    "Stage2BatchResult",
+    "Stage2Config",
+    "Stage2Diagnostics",
+    "Stage2PromptRecord",
+    "Stage2Selector",
     "ZeroVarianceType",
     "apply_exploration_update",
     "attach_stable_prompt_ids",
     "classify_zero_variance",
     "compute_exploration_update",
     "compute_reward_history_signal",
+    "compute_stage2_counts",
     "extract_stable_prompt_ids",
     "full_categorical_entropy",
     "restore_selector_rng",
