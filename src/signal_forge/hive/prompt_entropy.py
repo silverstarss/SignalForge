@@ -100,6 +100,7 @@ class PromptEntropyEvaluator:
         *,
         micro_batch_size: int | None = None,
         entropy_chunk_size: int = 2048,
+        model_forward_kwargs: Mapping[str, Any] | None = None,
     ):
         if not isinstance(actor, torch.nn.Module):
             raise TypeError("actor must be a torch.nn.Module representing the current policy")
@@ -112,6 +113,7 @@ class PromptEntropyEvaluator:
         self.actor = actor
         self.micro_batch_size = micro_batch_size
         self.entropy_chunk_size = entropy_chunk_size
+        self.model_forward_kwargs = dict(model_forward_kwargs or {})
 
     def compute(self, batch: PromptEntropyInputBatch) -> PromptEntropyBatchResult:
         """Compute V(x) over exactly L-1 predictive prompt positions per row."""
@@ -135,6 +137,7 @@ class PromptEntropyEvaluator:
                     }
                     if validated.position_ids is not None:
                         model_kwargs["position_ids"] = validated.position_ids[start:end]
+                    model_kwargs.update(self.model_forward_kwargs)
 
                     output = self.actor(**model_kwargs)
                     logits = _extract_logits(output)

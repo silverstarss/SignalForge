@@ -423,6 +423,34 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         return final_output
 
+    def compute_prompt_entropy(self, data: TensorDict) -> TensorDict | None:
+        """Compute HIVE prompt entropy on this worker's live actor module.
+
+        Actor updates mutate ``self.engine.module`` in place, so this path observes
+        the same current parameters used by the next actor training operation.
+        """
+        from signal_forge.hive.actor_rpc import compute_prompt_entropy_rpc
+
+        if self.engine_config.use_fused_kernels:
+            raise NotImplementedError("HIVE prompt entropy RPC does not yet support fused actor kernels")
+        if getattr(self.engine, "ulysses_sequence_parallel_size", 1) != 1:
+            raise NotImplementedError("HIVE prompt entropy RPC currently requires Ulysses sequence parallel size 1")
+        if not isinstance(getattr(self.engine, "module", None), torch.nn.Module):
+            raise NotImplementedError("HIVE prompt entropy RPC currently requires a torch actor module")
+
+        disable_auto_offload = tu.get(data, key="disable_auto_offload", default=False)
+        device = torch.device(self.device_name, get_torch_device().current_device())
+        autocast_dtype = getattr(self.engine, "_autocast_dtype", torch.bfloat16)
+        autocast_ctx = (
+            nullcontext()
+            if self.device_name != "cuda" or autocast_dtype == torch.float32
+            else torch.autocast(device_type=self.device_name, dtype=autocast_dtype)
+        )
+        with self.engine.eval_mode(disable_auto_offload=disable_auto_offload), autocast_ctx:
+            output = compute_prompt_entropy_rpc(self.engine.module, data, device=device)
+
+        return output.cpu() if self.engine.is_mp_src_rank_with_outputs() else None
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         return self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
@@ -649,6 +677,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         output = self.actor.infer_batch(data)
 
         return output.cpu() if output is not None else None
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    def compute_prompt_entropy(self, data: TensorDict) -> TensorDict:
+        """Ray RPC for exact current-actor prompt entropy evaluation."""
+        if self.actor is None:
+            raise RuntimeError("prompt entropy RPC requires an initialized actor role")
+        return self.actor.compute_prompt_entropy(data)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")

@@ -1,5 +1,6 @@
 """HIVE selector infrastructure."""
 
+from signal_forge.hive.actor_rpc import ActorEntropyCallDiagnostics, compute_prompt_entropy_rpc
 from signal_forge.hive.identity import PromptIdentityError, attach_stable_prompt_ids, extract_stable_prompt_ids
 from signal_forge.hive.prompt_entropy import (
     PromptEntropyBatchResult,
@@ -44,6 +45,7 @@ from signal_forge.hive.state import (
 )
 
 __all__ = [
+    "ActorEntropyCallDiagnostics",
     "ExplorationControllerConfig",
     "ExplorationUpdate",
     "EntropyScoredPrompt",
@@ -75,6 +77,7 @@ __all__ = [
     "attach_stable_prompt_ids",
     "classify_zero_variance",
     "compute_exploration_update",
+    "compute_prompt_entropy_rpc",
     "compute_reward_history_signal",
     "compute_stage2_counts",
     "extract_stable_prompt_ids",
