@@ -72,3 +72,23 @@ Select best checkpoint using `validation_id` 60/40 weighted pass@1:
 
 Also report GSM8K pass@1, MATH Level 3 pass@1, and macro-average pass@1. Never
 use `test_id` to choose checkpoints or change the formal compute budget.
+
+## RTX6000D Migration Smoke
+
+Use this only to validate the migrated machine/runtime before resuming formal
+Experiment B work. It uses Qwen2.5-1.5B-Instruct plus boxed GSM8K only, so it is
+not formal A or B evidence.
+
+```bash
+# First no-GPU/static check; skips model prefetch and does not train.
+VENV_DIR=/root/miniconda3/envs/verl \
+  bash src/scripts_a0_1p5b/08_run_1p5b_gsm8k_migration_smoke.sh --preflight-only
+
+# On a GPU instance, download/reuse the model cache, download/reuse GSM8K, then run 2 steps.
+VENV_DIR=/root/miniconda3/envs/verl \
+  bash src/scripts_a0_1p5b/08_run_1p5b_gsm8k_migration_smoke.sh
+```
+
+Runtime locations come from `config/signal_forge.env` and can be overridden with
+`MODEL_ROOT`, `DATA_ROOT`, `CACHE_ROOT`, `OUTPUT_ROOT`, `CHECKPOINT_ROOT`,
+`WANDB_ROOT`, `WANDB_MODE`, and `ENABLE_WANDB`.

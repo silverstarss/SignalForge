@@ -2,10 +2,15 @@
 # Cloud smoke test: cheap validation before the 1.5B run.
 set -xeuo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/workspace}
-VERL_DIR=${VERL_DIR:-${ROOT_DIR}/verl}
-VENV_DIR=${VENV_DIR:-${ROOT_DIR}/.venv-vllm}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+A0_SCRIPT_DIR=$(cd -- "${SCRIPT_DIR}/../scripts_a0" && pwd)
+# shellcheck source=/dev/null
+source "${A0_SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${A0_SCRIPT_DIR}"
 
+if [ -x "${VENV_DIR}/bin/python" ]; then
+    export PATH="${VENV_DIR}/bin:${PATH}"
+fi
 if [ -f "${VENV_DIR}/bin/activate" ]; then
     # shellcheck disable=SC1091
     source "${VENV_DIR}/bin/activate"
@@ -23,17 +28,17 @@ ray stop --force || true
 PROJECT_NAME=${PROJECT_NAME:-cloud_grpo_smoke}
 EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen25_0p5b_gsm8k_smoke}
 MODEL_PATH=${MODEL_PATH:-Qwen/Qwen2.5-0.5B-Instruct}
-TRAIN_FILE=${TRAIN_FILE:-${ROOT_DIR}/data/gsm8k/train.parquet}
-TEST_FILE=${TEST_FILE:-${ROOT_DIR}/data/gsm8k/test.parquet}
-OUT_DIR=${OUT_DIR:-${ROOT_DIR}/outputs/${PROJECT_NAME}/${EXPERIMENT_NAME}}
+TRAIN_FILE=${TRAIN_FILE:-${DATA_ROOT}/gsm8k/train.parquet}
+TEST_FILE=${TEST_FILE:-${DATA_ROOT}/gsm8k/test.parquet}
+OUT_DIR=${OUT_DIR:-${OUTPUT_ROOT}/${PROJECT_NAME}/${EXPERIMENT_NAME}}
 LOG_DIR=${LOG_DIR:-${OUT_DIR}/logs}
-CKPT_DIR=${CKPT_DIR:-${OUT_DIR}/checkpoints}
+CKPT_DIR=${CKPT_DIR:-${CHECKPOINT_ROOT}/${PROJECT_NAME}/${EXPERIMENT_NAME}}
 ROLLOUT_DIR=${ROLLOUT_DIR:-${OUT_DIR}/rollout_data}
 VAL_DIR=${VAL_DIR:-${OUT_DIR}/validation_data}
 mkdir -p "${LOG_DIR}" "${CKPT_DIR}" "${ROLLOUT_DIR}" "${VAL_DIR}"
 
 GPU_LOG=${GPU_LOG:-${LOG_DIR}/gpu.csv}
-"${ROOT_DIR}/scripts_grpo/monitor_gpu.sh" "${GPU_LOG}" &
+"${SIGNAL_FORGE_SRC}/scripts_grpo/monitor_gpu.sh" "${GPU_LOG}" &
 MONITOR_PID=$!
 trap 'kill "${MONITOR_PID}" 2>/dev/null || true' EXIT
 

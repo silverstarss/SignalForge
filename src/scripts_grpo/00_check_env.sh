@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/workspace}
-VERL_DIR=${VERL_DIR:-${ROOT_DIR}/verl}
-VENV_DIR=${VENV_DIR:-${ROOT_DIR}/.venv-vllm}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+A0_SCRIPT_DIR=$(cd -- "${SCRIPT_DIR}/../scripts_a0" && pwd)
+# shellcheck source=/dev/null
+source "${A0_SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${A0_SCRIPT_DIR}"
 
 echo "[check] root: ${ROOT_DIR}"
 echo "[check] verl: ${VERL_DIR}"
 
+if [ -x "${VENV_DIR}/bin/python" ]; then
+    export PATH="${VENV_DIR}/bin:${PATH}"
+fi
 if [ -f "${VENV_DIR}/bin/activate" ]; then
     # shellcheck disable=SC1091
     source "${VENV_DIR}/bin/activate"
@@ -35,7 +40,11 @@ for name in ["torch", "vllm", "ray", "verl", "transformers", "datasets"]:
 PY
 
 echo "[check] nvidia-smi"
-nvidia-smi
+if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi || true
+else
+    echo "[check] nvidia-smi unavailable; no-GPU boot is allowed for setup/preflight"
+fi
 
 echo "[check] veRL git"
 git rev-parse --short HEAD || true

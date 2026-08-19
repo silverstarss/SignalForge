@@ -31,7 +31,7 @@ fi
 
 if [ ! -d "${WORKSPACE}/src" ] || [ ! -d "${WORKSPACE}/verl" ]; then
     echo "ERROR: ${WORKSPACE}/src and ${WORKSPACE}/verl must exist after setup." >&2
-    echo "       Try extracting the bundle under /workspace, or set WORKSPACE=${BUNDLE_ROOT}." >&2
+    echo "       Try extracting the bundle under the intended runtime root, or set WORKSPACE=${BUNDLE_ROOT}." >&2
     exit 2
 fi
 
@@ -56,7 +56,7 @@ if ! grep -q "${BASHRC_MARKER_BEGIN}" "${HOME}/.bashrc" 2>/dev/null; then
     cat >> "${HOME}/.bashrc" <<EOF
 ${BASHRC_MARKER_BEGIN}
 export ROOT_DIR=${WORKSPACE}
-export PYTHONPATH=${WORKSPACE}/src:${WORKSPACE}/src/vendor_python:${WORKSPACE}/src/RewardScope/src:${WORKSPACE}/verl:\${PYTHONPATH:-}
+export PYTHONPATH=${WORKSPACE}/src:${WORKSPACE}/src/RewardScope/src:${WORKSPACE}/verl:\${PYTHONPATH:-}
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
@@ -67,7 +67,7 @@ EOF
 fi
 
 export ROOT_DIR="${WORKSPACE}"
-export PYTHONPATH="${WORKSPACE}/src:${WORKSPACE}/src/vendor_python:${WORKSPACE}/src/RewardScope/src:${WORKSPACE}/verl:${PYTHONPATH:-}"
+export PYTHONPATH="${WORKSPACE}/src:${WORKSPACE}/src/RewardScope/src:${WORKSPACE}/verl:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
@@ -122,17 +122,17 @@ fi
 
 cat > "${WORKSPACE}/AUTODL_NEXT_COMMANDS.txt" <<'EOF'
 # 4090 0.5B regression
-bash /workspace/src/scripts_a0/06_prepare_a0_0p5b_regression_data.sh
-bash /workspace/src/scripts_a0/07_run_a0_0p5b_short.sh
-bash /workspace/src/scripts_a0/08_run_a0_0p5b_regression.sh
-bash /workspace/src/scripts_a0/09_reload_a0_0p5b_regression_checkpoint.sh
+bash ${WORKSPACE}/src/scripts_a0/06_prepare_a0_0p5b_regression_data.sh
+bash ${WORKSPACE}/src/scripts_a0/07_run_a0_0p5b_short.sh
+bash ${WORKSPACE}/src/scripts_a0/08_run_a0_0p5b_regression.sh
+bash ${WORKSPACE}/src/scripts_a0/09_reload_a0_0p5b_regression_checkpoint.sh
 
 # A800 1.5B smoke
-bash /workspace/src/scripts_a0/00_prepare_a0_data.sh
-bash /workspace/src/scripts_a0/01_check_reward_equivalence.sh
-bash /workspace/src/scripts_a0/02_check_verl_reward_manager.sh
-bash /workspace/src/scripts_a0/03_run_a0_grpo_smoke.sh
-bash /workspace/src/scripts_a0/04_reload_a0_checkpoint.sh
+bash ${WORKSPACE}/src/scripts_a0/00_prepare_a0_data.sh
+bash ${WORKSPACE}/src/scripts_a0/01_check_reward_equivalence.sh
+bash ${WORKSPACE}/src/scripts_a0/02_check_verl_reward_manager.sh
+bash ${WORKSPACE}/src/scripts_a0/03_run_a0_grpo_smoke.sh
+bash ${WORKSPACE}/src/scripts_a0/04_reload_a0_checkpoint.sh
 
 # tmux examples
 tmux new -s a0_0p5b

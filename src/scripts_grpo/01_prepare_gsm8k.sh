@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/workspace}
-VERL_DIR=${VERL_DIR:-${ROOT_DIR}/verl}
-VENV_DIR=${VENV_DIR:-${ROOT_DIR}/.venv-vllm}
-DATA_DIR=${DATA_DIR:-${ROOT_DIR}/data/gsm8k}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+A0_SCRIPT_DIR=$(cd -- "${SCRIPT_DIR}/../scripts_a0" && pwd)
+# shellcheck source=/dev/null
+source "${A0_SCRIPT_DIR}/_paths.sh"
+load_signal_forge_paths "${A0_SCRIPT_DIR}"
+DATA_DIR=${DATA_DIR:-${DATA_ROOT}/gsm8k}
 
+if [ -x "${VENV_DIR}/bin/python" ]; then
+    export PATH="${VENV_DIR}/bin:${PATH}"
+fi
 if [ -f "${VENV_DIR}/bin/activate" ]; then
     # shellcheck disable=SC1091
     source "${VENV_DIR}/bin/activate"

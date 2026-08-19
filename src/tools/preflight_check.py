@@ -389,8 +389,19 @@ def check_paths(rep: Reporter, cfg: dict[str, Any], root: Path, allow_existing_o
             rep.fail(f"B.path.{label}.symlink", f"{label} is a broken symlink", path=str(value))
         elif label in {"train", "val"} and not value.exists():
             rep.fail(f"B.path.{label}.exists", f"{label} file does not exist", path=str(value))
-        elif label == "model" and (str(value).startswith("Qwen/") or not value.exists()):
-            rep.fail("B.path.model.local", "model path must be local and contain config/tokenizer files for A0", path=str(value))
+        elif label == "model" and str(value).startswith("Qwen/"):
+            if os.environ.get("ALLOW_HF_MODEL_DOWNLOAD", "1").lower() in {"1", "true", "yes", "on"}:
+                rep.pass_(
+                    "B.path.model.hf_repo",
+                    "model path is a Hugging Face repo id; training will download/cache it if not already cached",
+                    repo_id=str(value),
+                    hf_home=os.environ.get("HF_HOME"),
+                    hf_hub_cache=os.environ.get("HF_HUB_CACHE"),
+                )
+            else:
+                rep.fail("B.path.model.local", "model path must be local when ALLOW_HF_MODEL_DOWNLOAD=0", path=str(value))
+        elif label == "model" and not value.exists():
+            rep.fail("B.path.model.local", "local model path does not exist", path=str(value))
         else:
             rep.pass_(f"B.path.{label}", f"{label} path is usable", path=str(value))
     model = paths["model"]
@@ -774,11 +785,17 @@ def check_runtime(rep: Reporter, cfg: dict[str, Any], strict_formal: bool = Fals
     nvidia_count = len([line for line in nvidia.splitlines() if line.strip()]) if nvidia else 0
     out = {"requested_gpus": requested, "CUDA_VISIBLE_DEVICES": visible, "visible_count": visible_count, "nvidia_smi_count": nvidia_count, "nvidia_smi": nvidia}
     available = visible_count if visible_count is not None else nvidia_count
+    allow_no_gpu_boot = os.environ.get("ALLOW_NO_GPU_BOOT", "1").lower() in {"1", "true", "yes", "on"}
+    require_gpu_for_preflight = os.environ.get("REQUIRE_GPU_FOR_PREFLIGHT", "0").lower() in {"1", "true", "yes", "on"}
+    out["allow_no_gpu_boot"] = allow_no_gpu_boot
+    out["require_gpu_for_preflight"] = require_gpu_for_preflight
     if requested and available and requested > available:
         rep.fail("I.gpu.count", "requested GPU count exceeds visible/available GPUs", **out)
     elif requested and not available:
-        if strict_formal:
+        if strict_formal and require_gpu_for_preflight and not allow_no_gpu_boot:
             rep.fail("I.gpu.count", "requested GPUs are not visible in this environment", **out)
+        elif allow_no_gpu_boot and not require_gpu_for_preflight:
+            rep.pass_("I.gpu.count", "requested GPUs are not visible; no-GPU boot is explicitly allowed for setup/preflight", **out)
         else:
             rep.warn("I.gpu.count", "requested GPUs are not visible in this no-card/static environment", **out)
     elif requested:
@@ -1042,8 +1059,8 @@ def print_human(report: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project-root", default="/root/autodl-tmp/signal_forge")
-    parser.add_argument("--launch-script", default="/root/autodl-tmp/signal_forge/src/scripts_a0/08_run_a0_0p5b_regression.sh")
+    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--launch-script", default="src/scripts_a0/08_run_a0_0p5b_regression.sh")
     parser.add_argument("--resolved-config")
     parser.add_argument("--write-fallback-config", default=None)
     parser.add_argument("--mode", choices=["fast", "deep"], default="fast")

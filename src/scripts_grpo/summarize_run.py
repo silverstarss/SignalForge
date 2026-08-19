@@ -71,7 +71,7 @@ def summarize_gpu(gpu_csv: Path) -> dict[str, object]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("run_dir", help="Run directory, e.g. /workspace/outputs/project/experiment")
+    parser.add_argument("run_dir", help="Run directory, e.g. artifacts/outputs/project/experiment")
     parser.add_argument("--max-lines", type=int, default=120)
     args = parser.parse_args()
 

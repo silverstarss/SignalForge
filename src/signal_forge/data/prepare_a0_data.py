@@ -243,7 +243,7 @@ def _check_verl_loader(path: Path, tokenizer_path: str, max_prompt_length: int) 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", type=Path, default=Path(os.environ.get("DATA_ROOT", "/workspace/data")) / "signal_forge_a0")
+    parser.add_argument("--output-dir", type=Path, default=Path(os.environ.get("DATA_ROOT", "data")) / "signal_forge_a0")
     parser.add_argument("--gsm8k-train-inputs", type=Path, default=_existing(DEFAULT_GSM8K_TRAIN_INPUTS, LOCAL_GSM8K_TRAIN_INPUTS))
     parser.add_argument("--math-train-inputs", type=Path, default=_existing(DEFAULT_MATH_TRAIN_INPUTS, LOCAL_MATH_TRAIN_INPUTS))
     parser.add_argument("--gsm8k-val-inputs", type=Path, default=_existing(DEFAULT_GSM8K_VAL_INPUTS, LOCAL_GSM8K_VAL_INPUTS))

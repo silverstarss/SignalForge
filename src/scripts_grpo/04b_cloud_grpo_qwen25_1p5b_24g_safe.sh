@@ -21,4 +21,5 @@ export TEST_FREQ=${TEST_FREQ:-10}
 export LOG_VAL_GENERATIONS=${LOG_VAL_GENERATIONS:-4}
 export EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen25_1p5b_gsm8k_grpo_24g_safe}
 
-exec /workspace/scripts_grpo/04_cloud_grpo_qwen25_1p5b_gsm8k.sh "$@"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec "${SCRIPT_DIR}/04_cloud_grpo_qwen25_1p5b_gsm8k.sh" "$@"

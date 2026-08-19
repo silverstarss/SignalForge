@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 A0_SCRIPT_DIR=$(cd -- "${SCRIPT_DIR}/../scripts_a0" && pwd)
+
 # shellcheck source=/dev/null
 source "${A0_SCRIPT_DIR}/_paths.sh"
 load_signal_forge_paths "${A0_SCRIPT_DIR}"
@@ -15,16 +16,13 @@ if [ -f "${VENV_DIR}/bin/activate" ]; then
     source "${VENV_DIR}/bin/activate"
 fi
 
-MODEL_PATH=${MODEL_PATH:-Qwen/Qwen2.5-1.5B-Instruct}
-DATA_FILE=${DATA_FILE:-${DATA_ROOT}/gsm8k/test.parquet}
-OUT=${OUT:-${OUTPUT_ROOT}/cases/qwen25_1p5b_before.jsonl}
-LIMIT=${LIMIT:-16}
-MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-512}
+export PYTHONPATH="${SIGNAL_FORGE_SRC}:${VENDOR_PYTHON:+${VENDOR_PYTHON}:}${REWARDSCOPE_SRC}:${VERL_DIR}:${PYTHONPATH:-}"
 
-python "${SIGNAL_FORGE_SRC}/scripts_grpo/sample_gsm8k_cases.py" \
-    --model "${MODEL_PATH}" \
-    --data "${DATA_FILE}" \
-    --out "${OUT}" \
-    --limit "${LIMIT}" \
-    --max-new-tokens "${MAX_NEW_TOKENS}"
+DATASET_OUTPUT_DIR=${DATASET_OUTPUT_DIR:-${DATA_ROOT}/gsm8k_boxed}
+TRAIN_MAX_SAMPLES=${TRAIN_MAX_SAMPLES:--1}
+TEST_MAX_SAMPLES=${TEST_MAX_SAMPLES:--1}
 
+python -m signal_forge.data.prepare_gsm8k_runtime \
+    --output-dir "${DATASET_OUTPUT_DIR}" \
+    --train-max-samples "${TRAIN_MAX_SAMPLES}" \
+    --test-max-samples "${TEST_MAX_SAMPLES}"

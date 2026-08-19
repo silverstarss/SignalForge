@@ -46,6 +46,9 @@ for override in "$@"; do
     esac
 done
 
+if [ -x "${VENV_DIR}/bin/python" ]; then
+    export PATH="${VENV_DIR}/bin:${PATH}"
+fi
 if [ -f "${VENV_DIR}/bin/activate" ]; then
     # shellcheck disable=SC1091
     source "${VENV_DIR}/bin/activate"
@@ -53,11 +56,19 @@ fi
 
 cd "${VERL_DIR}"
 
-export PYTHONPATH="${SIGNAL_FORGE_SRC}:${VENDOR_PYTHON}:${REWARDSCOPE_SRC}:${VERL_DIR}:${PYTHONPATH:-}"
+export PYTHONPATH="${SIGNAL_FORGE_SRC}:${VENDOR_PYTHON:+${VENDOR_PYTHON}:}${REWARDSCOPE_SRC}:${VERL_DIR}:${PYTHONPATH:-}"
 export VLLM_USE_V1=${VLLM_USE_V1:-1}
 export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 export HYDRA_FULL_ERROR=${HYDRA_FULL_ERROR:-1}
 export RAY_DEDUP_LOGS=${RAY_DEDUP_LOGS:-0}
+export WANDB_DIR=${WANDB_DIR:-${WANDB_ROOT}}
+export WANDB_CACHE_DIR=${WANDB_CACHE_DIR:-${CACHE_ROOT}/wandb}
+
+if [ "${ENABLE_WANDB:-0}" = "1" ]; then
+    TRAINER_LOGGER=${TRAINER_LOGGER:-'["console","wandb"]'}
+else
+    TRAINER_LOGGER=${TRAINER_LOGGER:-'["console"]'}
+fi
 
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/_model_paths.sh"
@@ -121,7 +132,15 @@ from signal_forge.rewards.math_verify_adapter import compute_score
 
 payload = {
     "platform": platform.platform(),
+    "hostname": platform.node(),
+    "signal_forge_env_name": "${SIGNAL_FORGE_ENV_NAME:-unknown}",
     "python": platform.python_version(),
+    "hf_home": "${HF_HOME:-}",
+    "hf_hub_cache": "${HF_HUB_CACHE:-}",
+    "hf_datasets_cache": "${HF_DATASETS_CACHE:-}",
+    "torch_home": "${TORCH_HOME:-}",
+    "wandb_dir": "${WANDB_DIR:-}",
+    "wandb_mode": "${WANDB_MODE:-}",
     "cuda_available": bool(torch.cuda.is_available()),
     "torch": torch.__version__,
     "cuda": torch.version.cuda,
@@ -161,6 +180,13 @@ raw_rollouts_total=${RAW_ROLLOUTS_TOTAL}
 raw_rollout_tokens_budget_upper_bound=$((RAW_ROLLOUTS_TOTAL * MAX_RESPONSE_LENGTH))
 target_response_tokens=${TARGET_RESPONSE_TOKENS:-0}
 dynamic_sampling=${FILTER_GROUPS_ENABLE:-False}
+output_dir=${OUT_DIR}
+checkpoint_dir=${CKPT_DIR}
+cache_root=${CACHE_ROOT}
+hf_home=${HF_HOME}
+wandb_dir=${WANDB_DIR}
+wandb_mode=${WANDB_MODE}
+trainer_logger=${TRAINER_LOGGER}
 clip_higher=false
 overlong_reward_shaping=false
 curriculum_sampling=false
@@ -260,7 +286,7 @@ FILTER_GROUPS=(
 
 TRAINER=(
     trainer.critic_warmup=0
-    trainer.logger='["console"]'
+    trainer.logger=${TRAINER_LOGGER}
     trainer.project_name="${PROJECT_NAME}"
     trainer.experiment_name="${EXPERIMENT_NAME}"
     trainer.n_gpus_per_node=${NGPUS_PER_NODE}

@@ -52,7 +52,7 @@ def prompt_text(tokenizer: Any, prompt: Any) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
-    parser.add_argument("--data", default="/workspace/data/gsm8k/test.parquet")
+    parser.add_argument("--data", default="data/gsm8k/test.parquet")
     parser.add_argument("--out", required=True)
     parser.add_argument("--limit", type=int, default=16)
     parser.add_argument("--max-new-tokens", type=int, default=256)
