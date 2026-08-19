@@ -923,7 +923,37 @@ The paper motivates upper trimming because extremely high entropy can correspond
 
 ---
 
-# 9.1 Deterministic tie handling
+## 9.1 Integer count and G-rounding semantics
+
+Let `N` be the number of prompts entering one Stage-2 selection pool. Convert the configured fractions to prompt counts using explicit floor semantics:
+
+```text
+upper_trim_count     = floor(N * upper_trim_ratio)
+pre_round_keep_count = floor(N * keep_ratio)
+post_round_keep_count =
+    floor(pre_round_keep_count / G) * G
+```
+
+Apply these counts after sorting by entropy descending:
+
+1. the first `upper_trim_count` prompts are upper-trimmed;
+2. the next `pre_round_keep_count` prompts form the pre-round retained entropy band;
+3. retain the first `post_round_keep_count` prompts from that band;
+4. remove the remaining prompts from the tail of that band.
+
+Because the band is entropy-sorted descending, Step 4 removes the lowest-entropy prompts within the pre-round retained band.
+
+Prompts removed only by this `G`-multiple rule MUST be classified separately as:
+
+```text
+rounding_dropped
+```
+
+They MUST NOT be merged into the low-entropy rejection category. Small pools may therefore produce `post_round_keep_count = 0`; do not force at least `G` prompts to survive at the pure selector layer.
+
+---
+
+## 9.2 Deterministic tie handling
 
 Entropy ties must not create nondeterministic batch composition.
 
@@ -1901,9 +1931,22 @@ verify:
 
 ```text
 10,9 discarded as upper extreme
-8,7,6,5 retained
+8,7,6,5 form the pre-round retained entropy band
 4,3 discarded as low entropy
 ```
+
+Then verify the approved integer semantics. With the default `G=8`:
+
+```text
+upper_trim_count = floor(8 * 0.25) = 2
+pre_round_keep_count = floor(8 * 0.50) = 4
+post_round_keep_count = floor(4 / 8) * 8 = 0
+
+8,7,6,5 -> rounding_dropped
+final kept prompts -> empty
+```
+
+Also test a pool where `pre_round_keep_count` is larger than `G` but not a multiple of `G`; verify that rounding removes the lowest-entropy tail of the pre-round retained band and reports the loss separately from low-entropy rejection.
 
 ---
 
