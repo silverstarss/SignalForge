@@ -105,17 +105,23 @@ Once chosen, record the exact dataset version, preprocessing, subset constructio
 
 Use one shared math verifier/reward implementation across A and B.
 
-The final reward semantics must be frozen before formal runs.
-
-HIVE-style reward handling currently requires verifying:
+The reward semantics are frozen as:
 
 ```text
-correct              -> 1.0
-extracted but wrong  -> 0.1
-extraction failure   -> TBD
+correct                   -> 1.0
+extractable but incorrect -> 0.1
+extraction failure        -> 0.0
 ```
 
-Do not begin formal HIVE training until this is resolved.
+Zero-variance reward groups are classified exactly as:
+
+```text
+easy zero-var  = all rewards == 1.0
+hard zero-var  = all rewards == 0.1
+other zero-var = any other constant-reward group, including all 0.0
+```
+
+The same semantics and classification must be used across A and B.
 
 ---
 

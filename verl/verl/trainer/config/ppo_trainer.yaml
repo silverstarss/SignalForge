@@ -109,7 +109,7 @@ algorithm:
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
 
-  # HIVE selector state. Phase 1 does not perform rollout selection.
+  # HIVE selector state and Stage-1 defaults. Trainer integration remains disabled in Phase 2.
   hive:
 
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -132,6 +132,24 @@ algorithm:
 
     # Fixed exploration probability for other zero-variance groups
     p_default: 0.5
+
+    # Reward-history weight lambda in the general Stage-1 equation
+    lambda_weight: 1.0
+
+    # Lower bound for the reward-history score
+    epsilon_p: 0.01
+
+    # Desired total zero-variance fraction
+    alpha_total: 0.25
+
+    # Adaptive easy/hard exploration step size
+    delta_p: 0.01
+
+    # Lower adaptive exploration bound
+    p_min: 0.05
+
+    # Upper adaptive exploration bound
+    p_max: 0.95
 
 # config for the trainer
 trainer:

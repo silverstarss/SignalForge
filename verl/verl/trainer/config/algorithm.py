@@ -58,7 +58,7 @@ class FilterGroupsConfig(BaseConfig):
 
 @dataclass
 class HiveConfig(BaseConfig):
-    """Phase 1 HIVE selector state configuration."""
+    """HIVE selector state and Stage-1 configuration."""
 
     enable: bool = False
     group_size: int = 8
@@ -66,6 +66,12 @@ class HiveConfig(BaseConfig):
     p_easy_initial: float = 0.5
     p_hard_initial: float = 0.5
     p_default: float = 0.5
+    lambda_weight: float = 1.0
+    epsilon_p: float = 0.01
+    alpha_total: float = 0.25
+    delta_p: float = 0.01
+    p_min: float = 0.05
+    p_max: float = 0.95
 
 
 @dataclass

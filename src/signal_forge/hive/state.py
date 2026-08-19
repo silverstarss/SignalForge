@@ -1,4 +1,4 @@
-"""Persistent Phase 1 state for the HIVE rollout selector."""
+"""Persistent state and step snapshots for the HIVE rollout selector."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from enum import Enum
 from numbers import Real
 from pathlib import Path
 from statistics import pvariance
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -180,6 +181,19 @@ class PromptHistory:
         )
 
 
+@dataclass(frozen=True)
+class HiveSelectorSnapshot:
+    """Immutable history and probability view for one optimizer step."""
+
+    group_size: int
+    prompt_history: Mapping[str, tuple[PromptVisit, ...]]
+    p_easy: float
+    p_hard: float
+    p_default: float
+    global_step: int
+    selector_rng_state: dict[str, Any]
+
+
 def _validate_probability(name: str, value: float) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{name} must be a real number")
@@ -201,6 +215,19 @@ def _json_compatible(value: Any) -> Any:
     if isinstance(value, np.floating):
         return float(value)
     return value
+
+
+def restore_selector_rng(selector_rng_state: Mapping[str, Any]) -> np.random.Generator:
+    """Restore the dedicated selector PCG64 generator from serialized state."""
+    bit_generator_name = selector_rng_state.get("bit_generator")
+    if bit_generator_name != "PCG64":
+        raise ValueError(f"unsupported selector RNG bit generator: {bit_generator_name!r}")
+    bit_generator = np.random.PCG64()
+    try:
+        bit_generator.state = copy.deepcopy(dict(selector_rng_state))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid selector_rng_state") from exc
+    return np.random.Generator(bit_generator)
 
 
 @dataclass
@@ -257,6 +284,21 @@ class HiveSelectorState:
             configuration=dict(configuration or {}),
         )
 
+    def snapshot(self) -> HiveSelectorSnapshot:
+        """Freeze all selector inputs used by one optimizer step."""
+        histories = MappingProxyType(
+            {prompt_id: tuple(history.visits) for prompt_id, history in self.prompt_history.items()}
+        )
+        return HiveSelectorSnapshot(
+            group_size=self.group_size,
+            prompt_history=histories,
+            p_easy=self.p_easy,
+            p_hard=self.p_hard,
+            p_default=self.p_default,
+            global_step=self.global_step,
+            selector_rng_state=copy.deepcopy(self.selector_rng_state),
+        )
+
     def append_visit(self, prompt_id: str, visit: PromptVisit) -> None:
         if len(visit.rewards) != self.group_size:
             raise ValueError("PromptVisit reward group does not match selector group_size")
@@ -268,15 +310,7 @@ class HiveSelectorState:
         return 0 if history is None else history.trailing_zero_variance_streak()
 
     def restore_rng(self) -> np.random.Generator:
-        bit_generator_name = self.selector_rng_state.get("bit_generator")
-        if bit_generator_name != "PCG64":
-            raise ValueError(f"unsupported selector RNG bit generator: {bit_generator_name!r}")
-        bit_generator = np.random.PCG64()
-        try:
-            bit_generator.state = copy.deepcopy(self.selector_rng_state)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("invalid selector_rng_state") from exc
-        return np.random.Generator(bit_generator)
+        return restore_selector_rng(self.selector_rng_state)
 
     def capture_rng(self, rng: np.random.Generator) -> None:
         if not isinstance(rng, np.random.Generator):
