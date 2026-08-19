@@ -115,7 +115,7 @@ if [ -x "${ROOT_DIR}/scripts_grpo/monitor_gpu.sh" ]; then
 elif [ -x "${SIGNAL_FORGE_SRC}/scripts_grpo/monitor_gpu.sh" ]; then
     MONITOR_SCRIPT="${SIGNAL_FORGE_SRC}/scripts_grpo/monitor_gpu.sh"
 fi
-if [ -n "${MONITOR_SCRIPT}" ]; then
+if [ "${PREFLIGHT_ONLY}" != "1" ] && [ -n "${MONITOR_SCRIPT}" ]; then
     "${MONITOR_SCRIPT}" "${GPU_LOG}" &
     MONITOR_PID=$!
     trap 'if [ -n "${MONITOR_PID}" ]; then kill "${MONITOR_PID}" 2>/dev/null || true; fi' EXIT
@@ -338,17 +338,31 @@ if [ "${SKIP_PREFLIGHT:-0}" = "1" ]; then
     echo "========================================================================" >&2
 else
     RESOLVED_CONFIG_TIMEOUT=${RESOLVED_CONFIG_TIMEOUT:-60}
-    if ! timeout "${RESOLVED_CONFIG_TIMEOUT}" python -m verl.trainer.main_ppo --cfg job --resolve \
-        "${DATA[@]}" \
-        "${MODEL[@]}" \
-        "${ACTOR[@]}" \
-        "${ROLLOUT[@]}" \
-        "${REF[@]}" \
-        "${REWARD[@]}" \
-        "${FILTER_GROUPS[@]}" \
-        "${TRAINER[@]}" \
-        "${TRAIN_ARGS[@]}" > "${LOG_DIR}/resolved_config_${start_time}.yaml"; then
-        echo "WARNING: Hydra --cfg job --resolve failed in this environment; writing launch-array fallback config for preflight." >&2
+    RESOLVE_CONFIG_WITH_HYDRA=${RESOLVE_CONFIG_WITH_HYDRA:-1}
+    if [ "${PREFLIGHT_ONLY}" = "1" ] \
+        && [ "${ALLOW_NO_GPU_BOOT:-1}" = "1" ] \
+        && [ "${REQUIRE_GPU_FOR_PREFLIGHT:-0}" != "1" ] \
+        && ! nvidia-smi -L >/dev/null 2>&1; then
+        RESOLVE_CONFIG_WITH_HYDRA=0
+    fi
+    if [ "${RESOLVE_CONFIG_WITH_HYDRA}" = "1" ]; then
+        if ! timeout "${RESOLVED_CONFIG_TIMEOUT}" python -m verl.trainer.main_ppo --cfg job --resolve \
+            "${DATA[@]}" \
+            "${MODEL[@]}" \
+            "${ACTOR[@]}" \
+            "${ROLLOUT[@]}" \
+            "${REF[@]}" \
+            "${REWARD[@]}" \
+            "${FILTER_GROUPS[@]}" \
+            "${TRAINER[@]}" \
+            "${TRAIN_ARGS[@]}" > "${LOG_DIR}/resolved_config_${start_time}.yaml"; then
+            echo "WARNING: Hydra --cfg job --resolve failed in this environment; writing launch-array fallback config for preflight." >&2
+            python "${SIGNAL_FORGE_SRC}/tools/preflight_check.py" \
+                --write-fallback-config "${LOG_DIR}/resolved_config_${start_time}.yaml" \
+                $(printf ' --override %q' "${DATA[@]}" "${MODEL[@]}" "${ACTOR[@]}" "${ROLLOUT[@]}" "${REF[@]}" "${REWARD[@]}" "${FILTER_GROUPS[@]}" "${TRAINER[@]}" "${TRAIN_ARGS[@]}")
+        fi
+    else
+        echo "INFO: no-GPU preflight-only mode; writing launch-array fallback config without importing veRL trainer." >&2
         python "${SIGNAL_FORGE_SRC}/tools/preflight_check.py" \
             --write-fallback-config "${LOG_DIR}/resolved_config_${start_time}.yaml" \
             $(printf ' --override %q' "${DATA[@]}" "${MODEL[@]}" "${ACTOR[@]}" "${ROLLOUT[@]}" "${REF[@]}" "${REWARD[@]}" "${FILTER_GROUPS[@]}" "${TRAINER[@]}" "${TRAIN_ARGS[@]}")

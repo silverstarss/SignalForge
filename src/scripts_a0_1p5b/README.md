@@ -84,7 +84,7 @@ not formal A or B evidence.
 VENV_DIR=/root/miniconda3/envs/verl \
   bash src/scripts_a0_1p5b/08_run_1p5b_gsm8k_migration_smoke.sh --preflight-only
 
-# On a GPU instance, download/reuse the model cache, download/reuse GSM8K, then run 2 steps.
+# On a GPU instance, download/reuse the model cache, download/reuse GSM8K, then run 10 steps.
 VENV_DIR=/root/miniconda3/envs/verl \
   bash src/scripts_a0_1p5b/08_run_1p5b_gsm8k_migration_smoke.sh
 ```

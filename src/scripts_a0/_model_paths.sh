@@ -24,6 +24,11 @@ choose_qwen25_model_path() {
             escaped="Qwen2___5-1___5B-Instruct"
             repo_id="${QWEN25_1P5B_REPO_ID:-Qwen/Qwen2.5-1.5B-Instruct}"
             ;;
+        3B|3b)
+            dotted="Qwen2.5-3B-Instruct"
+            escaped="Qwen2___5-3B-Instruct"
+            repo_id="${QWEN25_3B_REPO_ID:-Qwen/Qwen2.5-3B-Instruct}"
+            ;;
         *)
             echo "ERROR: unsupported Qwen2.5 model size: ${size}" >&2
             return 2
@@ -54,6 +59,10 @@ choose_qwen25_0p5b_path() {
 
 choose_qwen25_1p5b_path() {
     choose_qwen25_model_path "1.5B"
+}
+
+choose_qwen25_3b_path() {
+    choose_qwen25_model_path "3B"
 }
 
 choose_qwen25_default_path() {
