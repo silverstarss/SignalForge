@@ -446,9 +446,9 @@ Store it as:
 other
 ```
 
-until the reward semantics are finalized.
+Under the frozen reward semantics, this includes every all-`0.0` extraction-failure group.
 
-See Section 15 for the paper ambiguity concerning extraction failures / reward 0.0.
+See Section 15 for the paper ambiguity and the reviewed SignalForge resolution.
 
 ---
 
@@ -1325,17 +1325,23 @@ The handling of a fully unextractable zero-variance group is not sufficiently sp
 
 ### SignalForge resolution
 
-Do NOT guess.
+SignalForge freezes the shared A/B reward semantics as:
 
-Until the reward adapter is finalized:
+```text
+correct                   -> 1.0
+extractable but incorrect -> 0.1
+extraction failure        -> 0.0
+```
+
+Zero-variance groups are classified exactly as:
 
 ```text
 all 1.0 -> easy
 all 0.1 -> hard
-other zero-var -> other
+any other constant group, including all 0.0 -> other
 ```
 
-Before formal training, inspect the HIVE/GRESO reward implementation conventions and freeze exact semantics in `EXPERIMENT_PROTOCOL.md`.
+The `other` exploration probability is the fixed configurable `p_default=0.5`; see `HIVE_DEVIATIONS.md`.
 
 ---
 
@@ -1378,15 +1384,15 @@ RewardResult:
     correct: bool
 ```
 
-Target HIVE-style semantics to investigate:
+Frozen HIVE reward semantics:
 
 ```text
-correct              -> 1.0
-extracted but wrong  -> 0.1
-extraction failure   -> TBD / likely 0.0, must verify
+correct                   -> 1.0
+extractable but incorrect -> 0.1
+extraction failure        -> 0.0
 ```
 
-Do not collapse everything into binary 0/1 before deciding the formal protocol.
+Do not collapse these three outcomes into binary `0/1`; baseline A and HIVE B must use the same adapter.
 
 ---
 
@@ -1835,7 +1841,7 @@ mixed
 → non-zero-var
 
 [0.0] * 8
-→ other until protocol defines behavior
+→ other
 ```
 
 ---

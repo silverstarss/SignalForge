@@ -1,6 +1,14 @@
 """HIVE selector infrastructure."""
 
 from signal_forge.hive.identity import PromptIdentityError, attach_stable_prompt_ids, extract_stable_prompt_ids
+from signal_forge.hive.prompt_entropy import (
+    PromptEntropyBatchResult,
+    PromptEntropyDiagnostics,
+    PromptEntropyEvaluator,
+    PromptEntropyInputBatch,
+    PromptEntropyRecord,
+    full_categorical_entropy,
+)
 from signal_forge.hive.stage1 import (
     ExplorationControllerConfig,
     ExplorationUpdate,
@@ -34,6 +42,11 @@ __all__ = [
     "HiveSelectorState",
     "PromptHistory",
     "PromptIdentityError",
+    "PromptEntropyBatchResult",
+    "PromptEntropyDiagnostics",
+    "PromptEntropyEvaluator",
+    "PromptEntropyInputBatch",
+    "PromptEntropyRecord",
     "PromptVisit",
     "RewardGroupClassification",
     "RewardHistorySignal",
@@ -49,5 +62,6 @@ __all__ = [
     "compute_exploration_update",
     "compute_reward_history_signal",
     "extract_stable_prompt_ids",
+    "full_categorical_entropy",
     "restore_selector_rng",
 ]
