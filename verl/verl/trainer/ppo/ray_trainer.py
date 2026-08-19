@@ -35,6 +35,7 @@ from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
+from signal_forge.hive import HiveSelectorState, attach_stable_prompt_ids
 from signal_forge.observability import (
     RolloutBudgetTracker,
     compute_group_metrics,
@@ -152,6 +153,18 @@ def _cfg_get(config, key, default=None):
     if hasattr(config, "get"):
         return config.get(key, default)
     return getattr(config, key, default)
+
+
+def _config_to_plain_dict(config) -> dict[str, Any]:
+    if OmegaConf.is_config(config):
+        plain = OmegaConf.to_container(config, resolve=True)
+    elif hasattr(config, "items"):
+        plain = dict(config.items())
+    else:
+        raise TypeError(f"expected a mapping-like configuration, got {type(config).__name__}")
+    if not isinstance(plain, dict):
+        raise TypeError("HIVE configuration must resolve to a mapping")
+    return plain
 
 
 def _filter_reward_infos_by_indices(
@@ -519,6 +532,34 @@ class RayPPOTrainer:
         self._best_validation_metric = None
         self._best_validation_step = None
         self._best_checkpoint_path = None
+
+        self._hive_configuration: dict[str, Any] | None = None
+        self.hive_selector_state: HiveSelectorState | None = None
+        self._initialize_hive_selector_state()
+
+    def _initialize_hive_selector_state(self) -> None:
+        hive_config = _cfg_get(self.config.algorithm, "hive", None)
+        if not _cfg_get(hive_config, "enable", False):
+            return
+
+        group_size = int(_cfg_get(hive_config, "group_size", 8))
+        rollout_group_size = int(self.config.actor_rollout_ref.rollout.n)
+        if group_size != 8:
+            raise ValueError(f"faithful HIVE Phase 1 requires group_size=8; got {group_size}")
+        if rollout_group_size != group_size:
+            raise ValueError(
+                f"HIVE group_size ({group_size}) must match actor_rollout_ref.rollout.n ({rollout_group_size})"
+            )
+
+        self._hive_configuration = _config_to_plain_dict(hive_config)
+        self.hive_selector_state = HiveSelectorState.create(
+            group_size=group_size,
+            seed=int(_cfg_get(hive_config, "seed", 42)),
+            p_easy=float(_cfg_get(hive_config, "p_easy_initial", 0.5)),
+            p_hard=float(_cfg_get(hive_config, "p_hard_initial", 0.5)),
+            p_default=float(_cfg_get(hive_config, "p_default", 0.5)),
+            configuration=self._hive_configuration,
+        )
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -1246,6 +1287,10 @@ class RayPPOTrainer:
         dataloader_state_dict = self.train_dataloader.state_dict()
         torch.save(dataloader_state_dict, dataloader_local_path)
 
+        if self.hive_selector_state is not None:
+            self.hive_selector_state.global_step = self.global_steps
+            self.hive_selector_state.save_checkpoint(local_global_step_folder)
+
         # latest checkpointed iteration tracker (for atomic usage)
         if (
             hasattr(self.config.actor_rollout_ref.actor.checkpoint, "async_save")
@@ -1328,6 +1373,17 @@ class RayPPOTrainer:
                 self.train_dataloader.load_state_dict(dataloader_state_dict)
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
+
+        if self.hive_selector_state is not None:
+            restored_hive_state = HiveSelectorState.load_checkpoint(global_step_folder)
+            if restored_hive_state.global_step != self.global_steps:
+                raise ValueError(
+                    f"HIVE selector global_step {restored_hive_state.global_step} does not match "
+                    f"trainer checkpoint step {self.global_steps}"
+                )
+            if restored_hive_state.configuration != self._hive_configuration:
+                raise ValueError("HIVE configuration does not match the selector checkpoint")
+            self.hive_selector_state = restored_hive_state
 
     def _start_profiling(self, do_profile: bool) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
@@ -1668,6 +1724,9 @@ class RayPPOTrainer:
                     )
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
                 batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+
+                if self.hive_selector_state is not None:
+                    attach_stable_prompt_ids(batch.non_tensor_batch)
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(

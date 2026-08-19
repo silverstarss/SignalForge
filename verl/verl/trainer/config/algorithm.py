@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from verl.base_config import BaseConfig
 
-__all__ = ["AlgoConfig", "FilterGroupsConfig", "KLControlConfig", "RolloutCorrectionConfig"]
+__all__ = ["AlgoConfig", "FilterGroupsConfig", "HiveConfig", "KLControlConfig", "RolloutCorrectionConfig"]
 
 
 @dataclass
@@ -54,6 +54,18 @@ class FilterGroupsConfig(BaseConfig):
     enable: bool = False
     metric: Optional[str] = None
     max_num_gen_batches: int = 0
+
+
+@dataclass
+class HiveConfig(BaseConfig):
+    """Phase 1 HIVE selector state configuration."""
+
+    enable: bool = False
+    group_size: int = 8
+    seed: int = 42
+    p_easy_initial: float = 0.5
+    p_hard_initial: float = 0.5
+    p_default: float = 0.5
 
 
 @dataclass
@@ -658,6 +670,7 @@ class AlgoConfig(BaseConfig):
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)
     filter_groups: Optional[FilterGroupsConfig] = None
+    hive: HiveConfig = field(default_factory=HiveConfig)
     # Rollout Correction: corrects off-policy issues (policy mismatch, model staleness, distribution shifts)
     # Set to None to disable, use RolloutCorrectionConfig presets (e.g., .tis(), .mis()), or pass dict
     rollout_correction: Optional[RolloutCorrectionConfig] = None

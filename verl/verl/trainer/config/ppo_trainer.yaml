@@ -109,6 +109,30 @@ algorithm:
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
 
+  # HIVE selector state. Phase 1 does not perform rollout selection.
+  hive:
+
+    # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+    _target_: verl.trainer.config.HiveConfig
+
+    # Whether to enable stable prompt identity and selector checkpointing
+    enable: False
+
+    # Number of complete responses in every prompt group
+    group_size: 8
+
+    # Independent selector RNG seed
+    seed: 42
+
+    # Initial easy zero-variance exploration probability
+    p_easy_initial: 0.5
+
+    # Initial hard zero-variance exploration probability
+    p_hard_initial: 0.5
+
+    # Fixed exploration probability for other zero-variance groups
+    p_default: 0.5
+
 # config for the trainer
 trainer:
 
