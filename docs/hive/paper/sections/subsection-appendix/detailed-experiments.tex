@@ -1,0 +1,130 @@
+% \section{Detailed Experimental Setting for Main Study}
+% \label{appendix-sec:detailed-experimental-setting}
+
+% We mainly follow the experimental protocol of GRESO~\cite{zheng2025act}.
+
+% \textbf{Models and datasets.} We evaluate Qwen2.5-Math-1.5B~\cite{yang2024qwen25mathtechnicalreportmathematical}, DeepSeek-R1-Distill-Qwen-1.5B~\cite{guo2025deepseek}, Qwen3-4B-Base~\cite{yang2025qwen3technicalreport}, Qwen2.5-Math-7B~\cite{yang2024qwen25mathtechnicalreportmathematical}, and Llama-3.2-3B-Instruct~\cite{grattafiori2024llama3}. We additionally evaluate Qwen2.5-14B/32B~\cite{qwen2.5-large} in the scaling study. We set the context length to 4096 for Qwen2.5-Math-1.5B/7B, 8192 for DeepSeek-R1-Distill-Qwen-1.5B, Qwen3-4B-Base, and Llama-3.2-3B-Instruct, and 16384 for Qwen2.5-14B/32B. The training datasets are: (1) DAPO+MATH, the combination of DAPO~\cite{yu2025dapo} and MATH~\cite{hendrycks2021measuringmathematicalproblemsolving}; and (2) a 30,000-example Open-R1 math subset~\cite{openr1}.
+
+% \textbf{Training.} Our implementation is based on verl~\cite{verl2025} and vLLM~\cite{vLLM2023SOSP}. We train all main models on 8$\times$A100 GPUs and set the rollout sampling temperature to 1.0. For Qwen2.5-Math-1.5B/7B, Qwen3-4B-Base, and Llama-3.2-3B-Instruct, the training batch size is 256, rollout sampling batch size is 384, and mini-batch size is 512. For DeepSeek-R1-Distill-Qwen-1.5B, the training batch size is 128, rollout sampling batch size is 192, and mini-batch size is 512. We sample $G=8$ responses per prompt. All models are trained for 1000 steps with AdamW~\cite{loshchilov2018decoupled}, learning rate $10^{-6}$, $\beta_1=0.9$, $\beta_2=0.999$, and weight decay 0.01. Similar to~\citet{yu2025dapo}, we remove the KL-divergence term. The actor is trained with Fully Sharded Data Parallel (FSDP)~\citep{zhao2023pytorch}.
+
+% \textbf{Baselines and budgets.} We compare HIVE with four prompt-selection baselines. Dynamic Sampling (DS)~\cite{yu2025dapo} performs rollout-based online filtering and serves as the full-cost online baseline. Pre-filter is a fixed offline selector: prompts are filtered before RL training and the selected subset remains unchanged during policy updates. GRESO~\cite{zheng2025act} is a history-based selector using past reward trajectories. PCL~\cite{Gao2025PCL} uses an auxiliary prompt-curriculum selector. For each model family, GRESO, Pre-filter, and PCL are run under the same rollout budget shown in Table~\ref{tab:main_comparison}. Since the original PCL paper evaluates Pre-filter and PCL by training until a fixed wall-clock budget, which differs from our 1000-step comparison protocol, we run these two baselines twice under the matched rollout count: one run follows the original PCL-paper settings, and the other follows our common settings. We report the higher average benchmark score across the two runs. Selector-specific overhead is included in the ``Other'' column of Table~\ref{tab:efficiency_cost}.
+
+% \textbf{Rewards and evaluation.} For reward assignment, we give a score of 0.1 when an answer can be successfully extracted and 1.0 when the extracted answer is correct. We evaluate every 50 steps on Math500~\cite{hendrycks2021measuringmathematicalproblemsolving}, AIME24~\cite{aops2024aime}, AMC~\cite{aops2024amc}, Minerva Math~\cite{NEURIPS2022_18abbeef}, Gaokao~\cite{zhang2024gaokao}, and Olympiad Bench~\cite{he-etal-2024-olympiadbench}. Following~\citet{zheng2025act}, we report the checkpoint with the best average performance on the six benchmarks.
+
+% \begin{tcolorbox}[myexample={Question Template}]
+% Please solve the following math problem: \{\{Question Description\}\}. The assistant first thinks about the reasoning process step by step and then provides the user with the answer. Return the final answer in \textbackslash boxed\{\} tags, for example \textbackslash boxed\{1\}. Let's solve this step by step.
+% \end{tcolorbox}
+\section{Detailed Experimental Setting for Main Study}
+\label{appendix-sec:detailed-experimental-setting}
+
+This section gives the full experimental protocol for the main study. We follow the general setup of GRESO~\cite{zheng2025act} and make three aspects explicit: the shared training and evaluation protocol, the budget-matched baseline comparison, and the HIVE-specific selector configuration.
+
+\subsection{Shared Training and Evaluation Protocol}
+\label{appendix-subsec:shared-exp-protocol}
+
+\paragraph{Models and datasets.}
+We evaluate Qwen2.5-Math-1.5B~\cite{yang2024qwen25mathtechnicalreportmathematical}, DeepSeek-R1-Distill-Qwen-1.5B~\cite{guo2025deepseek}, Qwen3-4B-Base~\cite{yang2025qwen3technicalreport}, Qwen2.5-Math-7B~\cite{yang2024qwen25mathtechnicalreportmathematical}, and Llama-3.2-3B-Instruct~\cite{grattafiori2024llama3}. We additionally evaluate Qwen2.5-14B/32B~\cite{qwen2.5-large} in the scaling study. The context length is 4096 for Qwen2.5-Math-1.5B/7B, 8192 for DeepSeek-R1-Distill-Qwen-1.5B, Qwen3-4B-Base, and Llama-3.2-3B-Instruct, and 16384 for Qwen2.5-14B/32B. Training uses two math-reasoning corpora: DAPO+MATH, which combines DAPO~\cite{yu2025dapo} and MATH~\cite{hendrycks2021measuringmathematicalproblemsolving}, and a 30,000-example Open-R1 math subset~\cite{openr1}.
+
+\paragraph{Optimization and rollout.}
+Our implementation is based on verl~\cite{verl2025} and vLLM~\cite{vLLM2023SOSP}. We train the main models on 8$\times$A100 GPUs, use rollout sampling temperature 1.0, and sample $G=8$ responses per prompt. All models are trained for 1000 steps with AdamW~\cite{loshchilov2018decoupled}, learning rate $10^{-6}$, $\beta_1=0.9$, $\beta_2=0.999$, and weight decay 0.01. Following~\citet{yu2025dapo}, we remove the KL-divergence term. The actor is trained with Fully Sharded Data Parallel (FSDP)~\citep{zhao2023pytorch}.
+
+For Qwen2.5-Math-1.5B/7B, Qwen3-4B-Base, and Llama-3.2-3B-Instruct, the final training batch contains $B_{\mathrm{t}}=256$ prompts, the Stage-2 candidate target is $B_{\mathrm{cand}}=384$, and the mini-batch size is 512. For DeepSeek-R1-Distill-Qwen-1.5B, we use $B_{\mathrm{t}}=128$, $B_{\mathrm{cand}}=192$, and mini-batch size 512. The larger Qwen2.5-14B/32B scaling runs use the same optimizer, sampling temperature, and selector hyperparameters, with the longer 16384-token context length noted above.
+
+\paragraph{Rewards and evaluation.}
+For reward assignment, we give a score of 0.1 when an answer can be successfully extracted and 1.0 when the extracted answer is correct. We evaluate every 50 steps on Math500~\cite{hendrycks2021measuringmathematicalproblemsolving}, AIME24~\cite{aops2024aime}, AMC~\cite{aops2024amc}, Minerva Math~\cite{NEURIPS2022_18abbeef}, Gaokao~\cite{zhang2024gaokao}, and Olympiad Bench~\cite{he-etal-2024-olympiadbench}. Following~\citet{zheng2025act}, we report the checkpoint with the best average performance across the six benchmarks.
+
+\paragraph{Prompt template.}
+All math-reasoning rollouts use the following template.
+
+\begin{tcolorbox}[myexample={Question Template}]
+Please solve the following math problem: \{\{Question Description\}\}. The assistant first thinks about the reasoning process step by step and then provides the user with the answer. Return the final answer in \textbackslash boxed\{\} tags, for example \textbackslash boxed\{1\}. Let's solve this step by step.
+\end{tcolorbox}
+
+\subsection{Baselines and Budget Matching}
+\label{appendix-subsec:baselines-budget-matching}
+
+We compare HIVE with four prompt-selection baselines. Dynamic Sampling (DS)~\cite{yu2025dapo} performs rollout-based online filtering and serves as the full-cost online baseline. Pre-filter is a fixed offline selector: prompts are filtered before RL training, and the selected subset remains unchanged during policy updates. GRESO~\cite{zheng2025act} is a history-based selector using past reward trajectories. PCL~\cite{Gao2025PCL} uses an auxiliary prompt-curriculum selector.
+
+For each model family, GRESO, Pre-filter, and PCL are run under the rollout budgets shown in Table~\ref{tab:main_comparison}. Because the original PCL paper evaluates Pre-filter and PCL under a fixed wall-clock budget, while our main comparison fixes training at 1000 steps, we evaluate these two baselines with a matched-rollout two-run protocol. One run follows the original PCL-paper settings, and the other follows our common training settings; we report the higher average benchmark score across the two runs. Selector-specific runtime overhead is included in the ``Other'' column of Table~\ref{tab:efficiency_cost}.
+
+\subsection{HIVE-Specific Hyperparameters and Initialization}
+\label{appendix-subsec:hive-hyperparams}
+
+Table~\ref{tab:hive-hyperparams} lists the selector hyperparameters used by HIVE, their notation in Section~\ref{sec:method} and Algorithm~\ref{alg:hive-training}, their deployed values, and their roles. Unless a row explicitly depends on $B_{\mathrm{t}}$, the same value is used across the main-result models and the Qwen2.5-14B/32B scaling study.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Complete list of HIVE-specific hyperparameters used in the main experiments. Defaults that we never override are marked with $^{\dagger}$.}
+\label{tab:hive-hyperparams}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.9cm} c c >{\raggedright\arraybackslash}p{6.1cm}}
+\toprule
+\textbf{Component} & \textbf{Symbol} & \textbf{Value} & \textbf{Description} \\
+\midrule
+\multicolumn{4}{l}{\textit{Stage~1: history-informed selection}} \\
+\midrule
+Reward / entropy mixing weight        & $\lambda$              & $1.0$      & Weight on the reward-history score in Eq.~\eqref{eq:stage1_select}; we set $\lambda{=}1$ in deployed runs and rely on Stage~2 to enforce the entropy criterion. The $(1{-}\lambda)\,s_{\mathrm{ent}}$ term in Eq.~\eqref{eq:stage1_select} is reserved for the ablation in Sec.~\ref{subsec:exp-component-study}. \\
+Initial easy exploration prob.        & $p_{e,\mathrm{easy}}^{(0)}$ & $0.5$ & Base retention probability for prompts whose recent visits were all-correct zero-variance groups. \\
+Initial hard exploration prob.        & $p_{e,\mathrm{hard}}^{(0)}$ & $0.5$ & Base retention probability for prompts whose recent visits were all-incorrect zero-variance groups. \\
+Probability step size                 & $\Delta p$              & $0.01$     & Per-step additive update applied to $p_{e,\tau}$ in Eq.~\eqref{eq:adaptive_pe}. \\
+Lower clip on $p_{e,\tau}$            & $p_{\min}$              & $0.05$$^{\dagger}$  & Floor of the projection range $[p_{\min},p_{\max}]$ in Eq.~\eqref{eq:adaptive_pe}. \\
+Upper clip on $p_{e,\tau}$            & $p_{\max}$              & $0.95$$^{\dagger}$  & Ceiling of the projection range $[p_{\min},p_{\max}]$ in Eq.~\eqref{eq:adaptive_pe}. \\
+Stability constant                    & $\epsilon_{p}$          & $0.01$     & Per-prompt floor on $s_{\mathrm{rew}}(x_i){=}\max\!\big((p_{e,\tau})^{z_i},\epsilon_p\big)$, which prevents long-saturated prompts from being permanently discarded. \\
+Total target zero-variance ratio      & $\alpha$                & $0.25$     & Per-step zero-variance budget that drives the adaptive update of $p_{e,\tau}$. \\
+Easy target ratio                     & $\alpha_{\mathrm{easy}}$ & $\alpha/3{=}0.083$ & Targeted fraction of all-correct zero-variance groups. \\
+Hard target ratio                     & $\alpha_{\mathrm{hard}}$ & $2\alpha/3{=}0.167$ & Targeted fraction of all-incorrect zero-variance groups; the larger hard target retains more prompts that may enter the learnable region as the policy improves. \\
+Easy classification threshold         & $r_{\mathrm{easy}}$     & $1.0$      & A reward group is counted as easy zero-variance iff every one of its $G$ rewards equals $1.0$. \\
+Hard classification threshold         & $r_{\mathrm{hard}}$     & $0.1$      & A reward group is counted as hard zero-variance iff every one of its $G$ rewards equals $0.1$ (extracted but wrong). \\
+History-trace size                    & $|\mathcal{T}_i|$       & unbounded  & Each prompt keeps the full sequence of past visits; only the trailing zero-variance run length $z_i^{(t)}$ enters Eq.~\eqref{eq:stage1_reward_score}. \\
+\midrule
+\multicolumn{4}{l}{\textit{Stage~2: online entropy verification}} \\
+\midrule
+Entropy keep ratio                    & $k_{\mathrm{keep}}$     & $0.5$      & Fraction of candidates retained by the entropy gate in Eq.~\eqref{eq:median_gate}; equivalent to a median threshold $\gamma_t$ when $k_{\mathrm{off}}{=}0$. \\
+Entropy upper-trim ratio              & $k_{\mathrm{off}}$      & $0.25$     & Fraction of the highest-entropy candidates dropped before the keep band; in early training, these are typically degenerate non-reasoning prompts. \\
+\midrule
+\multicolumn{4}{l}{\textit{Batch sizing}} \\
+\midrule
+Final training batch (prompts)        & $B_{\mathrm{t}}$        & $256$ / $128$ & $256$ for Qwen2.5-Math-1.5B/7B, Qwen3-4B-Base, and Llama-3.2-3B-Instruct; $128$ for DeepSeek-R1-Distill-Qwen-1.5B. \\
+Stage-2 candidate target (prompts)    & $B_{\mathrm{cand}}$     & $384$ / $192$ & Equal to $1.5\,B_{\mathrm{t}}$ across these configurations. \\
+Group size (responses/prompt)         & $G$                     & $8$        & Number of responses sampled per prompt at rollout. \\
+Dataloader micro-batch (prompts)      & $b_{\mathrm{raw}}$      & $32$       & Prompts pulled per inner iteration of the selector loop. \\
+Adaptive-resample lower bound         & $b_{\mathrm{min}}$      & $64$$^{\dagger}$ & Floor on the adaptive resample size used by the top-up loop. \\
+Adaptive-resample safety factor       & $\eta$                  & $1.25$$^{\dagger}$ & Safety multiplier on the predicted resample size in the top-up loop. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Initialization.}
+The data profiler storing $\mathcal{T}=\{\mathcal{T}_i\}$ is initialized as an empty dictionary, so a prompt $x_i$ has no history until its first rollout. For an unseen prompt, $z_i^{(t)}{=}0$, hence $s_{\mathrm{rew}}(x_i){=}1$ and Stage~1 accepts it with probability~$1$. Thus, every prompt receives one free visit before history-based filtering applies. We initialize $p_{e,\mathrm{easy}}^{(0)}{=}p_{e,\mathrm{hard}}^{(0)}{=}0.5$; the larger hard target $\alpha_{\mathrm{hard}}{=}2\alpha/3$ then retains hard zero-variance prompts more aggressively. In our main runs, typical steady-state values are $p_{e,\mathrm{easy}}{\approx}0.05{-}0.15$ and $p_{e,\mathrm{hard}}{\approx}0.6{-}0.9$. Stage~2 is stateless and needs no initialization. The selector uses the same global random seed as the verl trainer ($42$ unless specified otherwise), making the Stage~1 Bernoulli draws deterministic given a checkpoint.
+
+\paragraph{Exact batch-sizing protocol.}
+A GRPO update consumes exactly $B_{\mathrm{t}}\cdot G$ rollouts. HIVE obtains this fixed-size update batch with the following three-step accumulation procedure, which instantiates Algorithm~\ref{alg:hive-training}.
+
+\begin{enumerate}\itemsep=2pt\parsep=0pt\topsep=2pt
+\item \textit{Candidate accumulation.} Pull $b_{\mathrm{raw}}{=}32$ prompts from the dataloader, apply the Stage~1 Bernoulli filter with acceptance probability $P_{\mathrm{S1}}(x_i)$, then apply the Stage~2 entropy band gate: sort the survivors by $V_t(x)$ in descending order, drop the top $k_{\mathrm{off}}$ fraction, keep the next $k_{\mathrm{keep}}$ fraction, and round the kept count down to a multiple of $G$. Append the kept prompts to $\mathcal{C}_t$ until $|\mathcal{C}_t|\geq B_{\mathrm{cand}}^{\mathrm{adapt}}$, initialized as $B_{\mathrm{cand}}$.
+\item \textit{Rollout filtering.} Sample $G$ responses for every $x\in\mathcal{C}_t$, score them, discard groups whose reward variance is exactly zero, and append the surviving prompt-response groups to $\mathcal{R}_t$.
+\item \textit{Top-up and slicing.} If $|\mathcal{R}_t|<B_{\mathrm{t}}\cdot G$, set
+\[
+B_{\mathrm{cand}}^{\mathrm{adapt}}
+\gets
+\max\!\Big(
+b_{\mathrm{min}},
+\min\!\big(
+B_{\mathrm{cand}},
+\big\lceil
+\tfrac{\eta\,(B_{\mathrm{t}}\cdot G-|\mathcal{R}_t|)}
+{(1-\hat\rho_{\mathrm{zv}}^{(t)})\,G}
+\big\rceil
+\big)
+\Big),
+\]
+where $\hat\rho_{\mathrm{zv}}^{(t)}$ is the zero-variance ratio observed in Step~2, and repeat candidate accumulation. Once enough non-zero-variance rollouts are available, slice $\mathcal{R}_t$ to the first $B_{\mathrm{t}}\cdot G$ rollouts with \texttt{select\_batch\_slice} and pass the result to GRPO. The slice is taken in arrival order, which is uniform over surviving rollouts because dataloader fetches are independent and Stage~1/2 acceptance is conditionally independent of buffer position.
+\end{enumerate}
+
+This protocol guarantees that every GRPO step receives an exactly-$B_{\mathrm{t}}$-prompt batch, while the number of raw prompts inspected can grow when many groups are discarded as zero-variance. The mean number of dataloader fetches per training step is approximately
+\[
+\frac{B_{\mathrm{cand}}}
+{b_{\mathrm{raw}}\cdot k_{\mathrm{keep}}\cdot(1-\hat\rho_{\mathrm{zv}})}.
+\]
+For the Qwen2.5-Math-7B run, this is approximately $384/(32\cdot0.5\cdot0.85)\approx28$ inner iterations, or about 900 raw prompts inspected for the 256 prompts that finally enter the GRPO update.

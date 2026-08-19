@@ -1,0 +1,227 @@
+\documentclass{article}
+
+% NeurIPS 2026 submission style. Omit "final" and "preprint" for the
+% anonymized main-track submission.
+\PassOptionsToPackage{numbers,sort&compress}{natbib}
+% \usepackage{neurips_2026}
+\usepackage[preprint]{neurips_2026}
+
+\usepackage{placeins}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{wrapfig}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{nicefrac}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage[most]{tcolorbox}
+\tcbuselibrary{breakable}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{enumitem}
+\usepackage[capitalize,noabbrev]{cleveref}
+\usepackage[textsize=tiny]{todonotes}
+\usepackage[table]{xcolor}
+\newcommand{\best}[1]{\cellcolor{blue!10}\textbf{#1}}
+\FloatBarrier
+
+% % Preserve the ICML-era source convention where \cite produced parenthetical
+% % natbib citations.
+% \setcitestyle{authoryear,round,citesep={;},aysep={,},yysep={;}}
+% \let\cite\citep
+% Use numeric citations while preserving the convention that \cite produces
+% parenthetical natbib citations.
+\setcitestyle{numbers,square,comma,sort&compress}
+\let\cite\citep
+
+% Attempt to make hyperref and algorithmic work together better.
+\providecommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Tcolorbox styles used in the appendix examples and case studies.
+\definecolor{MyPurple}{HTML}{67849B}
+\definecolor{MyLightBlue}{HTML}{F4F7FC}
+\tcbset{
+  myexample/.style={
+    colback=white,
+    colframe=MyPurple,
+    colbacktitle=MyLightBlue,
+    coltitle=black!80,
+    fonttitle=\bfseries,
+    arc=4mm,
+    boxrule=1pt,
+    left=3mm, right=3mm, top=1.5mm, bottom=1.5mm,
+    title={#1}
+  }
+}
+
+\definecolor{caseblue}{HTML}{4E79A7}
+\tcbset{
+  casestudy/.style={
+    colback=white,
+    colframe=black!60,
+    colbacktitle=caseblue,
+    coltitle=white,
+    fonttitle=\bfseries,
+    arc=4mm,
+    boxrule=1pt,
+    left=3mm, right=3mm, top=1.5mm, bottom=1.5mm,
+    breakable,
+    title={#1}
+  }
+}
+
+% Common symbols.
+\newcommand{\Expect}{\mathbb{E}}
+\newcommand{\Vcal}{\mathcal{V}}
+\newcommand{\thetahat}{\hat{\theta}}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\bs}[1]{\boldsymbol{#1}}
+\newcommand{\red}[1]{\textcolor{red}{#1}}
+\newcommand{\blue}[1]{\textcolor{blue}{#1}}
+\definecolor{cGreen}{RGB}{0,150,0}
+\newcommand{\green}[1]{\textcolor{cGreen}{#1}}
+\definecolor{brown}{RGB}{139,64,0}
+\newcommand{\brown}[1]{\textcolor{brown}{#1}}
+\newcommand{\gray}[1]{{\color{gray}~#1 }}
+
+\definecolor{easy-top}{RGB}{160,208,208}
+\definecolor{difficult-top}{RGB}{213,170,190}
+\newcommand{\easyTop}[1]{\textcolor{easy-top}{#1}}
+\newcommand{\difficultTop}[1]{\textcolor{difficult-top}{#1}}
+
+\hypersetup{
+  pdftitle={Train at the Moving Edge: \red{Rollout-Efficient} RL for Large Reasoning Models},
+  pdfkeywords={Machine Learning, NeurIPS, Reinforcement Learning, Large Reasoning Models, Prompt Selection}
+}
+
+% Prevent large top floats from stacking on the same page; this keeps the
+% introductory figures as one visual anchor per page while allowing text to flow.
+\setcounter{topnumber}{1}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\textfraction}{0.05}
+
+% Learn at Moving Edge: Rollout-Efficient RL Training for Large Reasoning Models
+% Learn at Moving Edge: Rollout-Efficient RL Training for Large Reasoning Models
+% Train at the Moving Edge: Rollout-Efficient RL for Large Reasoning Models
+% HIVE: Rollout-Efficient RL Training at the Moving Edge for Large Reasoning Models
+\title{Train at the Moving Edge: Efficient RL for Large Reasoning Models via Rollout Selection}
+
+% \author{%
+%   Jiahao Wu\thanks{Equal contribution.} \\
+%   Southern University of Science and Technology\\
+%   The Hong Kong Polytechnic University\\
+%   \And
+%   Ning Lu\thanks{Equal contribution.} \\
+%   Southern University of Science and Technology\\
+%   The Hong Kong University of Science and Technology\\
+%   \AND
+%   Shengcai Liu\thanks{Correspondence to: \texttt{liusc3@sustech.edu.cn}.} \\
+%   Southern University of Science and Technology\\
+%   \And
+%   Kun Wang \\
+%   Nanyang Technological University\\
+%   The Hong Kong Polytechnic University\\
+%   \And
+%   Yanting Yang \\
+%   Rutgers University\\
+%   \And Bailong Lin \\
+%   The Hong Kong University of Science and Technology (Guangzhou) \\
+%   \And
+%   Chen Jason Zhang \\
+%   The Hong Kong Polytechnic University\\
+%   \And
+%   Qing Li \\
+%   The Hong Kong Polytechnic University\\
+%   \And
+%   Ke Tang \\
+%   Southern University of Science and Technology\\
+% }
+\author{%
+\begin{minipage}{0.98\textwidth}
+\centering
+\normalfont\small
+{\bfseries
+Jiahao Wu\textsuperscript{1,2,*} \quad
+Ning Lu\textsuperscript{1,3,*} \quad
+Shengcai Liu\textsuperscript{1,\textdagger} \quad
+Kun Wang\textsuperscript{4,2} \quad
+Yanting Yang\textsuperscript{5}
+}\\[-0.05em]
+{\bfseries
+Bailong Lin\textsuperscript{6} \quad
+Chen Jason Zhang\textsuperscript{2} \quad
+Qing Li\textsuperscript{2} \quad
+Ke Tang\textsuperscript{1}
+}\\[0.4em]
+{\scriptsize
+\textsuperscript{1}Southern University of Science and Technology \quad
+\textsuperscript{2}The Hong Kong Polytechnic University
+}\\[-0.1em]
+{\scriptsize
+\textsuperscript{3}The Hong Kong University of Science and Technology \quad
+\textsuperscript{4}Nanyang Technological University
+}\\[-0.1em]
+{\scriptsize
+\textsuperscript{5}Rutgers University \quad
+\textsuperscript{6}The Hong Kong University of Science and Technology (Guangzhou)
+}\\[0.2em]
+{\scriptsize
+\textsuperscript{*}Equal contribution. \quad
+\textsuperscript{\textdagger}Correspondence to: \texttt{liusc3@sustech.edu.cn}.
+}
+\end{minipage}
+}
+% \author{}å
+
+\begin{document}
+
+\maketitle
+\suppressfloats[t]
+
+\begin{abstract}
+Reinforcement learning (RL) has become essential for post-training large language models (LLMs) in reasoning tasks. While scaling rollouts can stabilize training and enhance performance, it introduces substantial computational overhead. In algorithms like GRPO, multiple rollouts per prompt incur prohibitive costs, as a large portion of prompts provide negligible gradients and are thus of low utility. This raises a key question: \textit{how to identify high-utility prompts before an expensive rollout?} 
+Our experimental analysis reveals that sample utility is non-uniform and dynamic: the strongest learning signals concentrate at the ``learning edge'', the intersection of intermediate difficulty and high response entropy, which shifts throughout training. Motivated by this observation, we propose HIVE, a history-informed and online-verified prompt selection framework for data-efficient RL training. HIVE first uses historical reward statistics and response entropy as a cheap prior to filter candidate prompts, and then employs prompt entropy as a real-time proxy to prune instances with stale utility. Across multiple reasoning benchmarks and base models, HIVE maintains  reasoning accuracy with substantial rollout cost reduction, achieving up to 2.3× total training speedup. 
+
+% \red{1. re-examine all the equations to make them more professional+2. add more experimental details for preliminary
+% studies and main experimetns. 4. examine references duplication, fake and missing. 4. check the sentences to keep them
+% within 2.5 lines. 5. the experimental analysis and whether missing the figs or tables.}
+\end{abstract}
+
+\input{sections/introduction}
+\input{sections/preliminaries}
+\input{sections/method}
+\input{sections/experiment}
+\input{sections/related-work}
+\input{sections/conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\input{sections/appendix}
+
+\newpage
+\input{checklist}
+
+\end{document}

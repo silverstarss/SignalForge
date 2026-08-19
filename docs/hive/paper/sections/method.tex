@@ -1,0 +1,181 @@
+\section{Methodology}
+\label{sec:method}
+\begingroup
+\setlength{\abovedisplayskip}{5pt plus 1pt minus 1pt}
+\setlength{\belowdisplayskip}{5pt plus 1pt minus 1pt}
+\setlength{\abovedisplayshortskip}{3pt plus 1pt minus 1pt}
+\setlength{\belowdisplayshortskip}{3pt plus 1pt minus 1pt}
+Section~\ref{sec:obs-preliminary} shows that useful RLVR prompts concentrate near a moving learning edge and historical metadata alone is unreliable because the edge moves as the policy changes. Bbased on these observations, HIVE is designed as a two-stage pre-rollout selector (Figure~\ref{fig:framework} and Algorithm~\ref{alg:hive-training}). Stage~1 uses historical reward and response-entropy traces as a cheap prior to form a candidate pool; Stage~2 revalidates those candidates under the current policy using prompt-side entropy before expensive rollouts for the standard GRPO update.
+
+\subsection{Design Objective}
+A practical RLVR prompt selector must be both \textbf{online}, adapting as the policy evolves and the learning frontier shifts during training, and \textbf{efficient}, avoiding full response rollouts that could erase its computational benefits. HIVE achieves this via two stages. Stage~1 targets efficiency: it uses historical reward trajectories and response-side entropies to cheaply narrow the full prompt pool to a candidate set. Stage~2 restores online precision: it verifies candidates with prompt-side entropy computed under the current model parameters. The final selected prompts are then passed to the standard rollout and GRPO update. The detailed procedure is provided in Appendix~\ref{appendix-sec:alg}.
+
+\subsection{Stage 1: History-Informed Coarse Narrowing}
+Stage~1 removes prompts that are unlikely to lie near the learning edge while keeping enough exploration to handle edge movement. It combines a reward-based score, which tracks difficulty saturation, with an entropy-based score, which favors historically uncertain prompts.
+
+% \textbf{Reward-based score.}
+% For each prompt $x_i\in \mathcal{D}$, HIVE maintains a historical trace
+% \begin{equation}
+%     T_i = \{R_{i,1},\ldots,R_{i,n}\},
+% \end{equation}
+% where $R_{i,j}=\{r_{i,j}^{(k)}\}_{k=1}^G$ is the reward group obtained from $G$ rollouts at the $j$-th recorded iteration. Let $\mathbb{I}_{i,j}=1$ if all rewards in $R_{i,j}$ are identical, and $0$ otherwise. We define the most recent consecutive zero-variance count as
+% % \begin{equation}
+%     $z_i = \max \left\{ k \in [0,n] \mid \prod_{j=n-k+1}^{n} \mathbb{I}_{i,j} = 1 \right\}.$
+% % \end{equation}
+% The reward-based retention probability is:
+% \begin{equation}
+%     P_{\mathrm{Rew}}(x_i)=p_e^{z_i},
+% \end{equation}
+% where $p_e\in(0,1)$ is a base exploration probability. Prompts that repeatedly produce identical rewards are retained with decreasing probability, but never deterministically removed; this matters because hard prompts can become learnable later as the policy improves.
+
+% HIVE adjusts $p_e$ online to avoid manual tuning across models and stages. At each iteration, it compares the observed zero-variance ratio with a target $\alpha$ and updates $p_e$ by a step size $\Delta p$: if too many selected prompts are zero-variance, $p_e$ is decreased; otherwise, it is increased. We maintain separate probabilities $p_{e,\mathrm{easy}}$ and $p_{e,\mathrm{hard}}$ for all-correct and all-incorrect zero-variance prompts, allowing HIVE to control over-sampling of mastered and intractable regions independently.
+
+% \textbf{Entropy-based score.}
+% Historical response-side entropy provides a low-cost prior over uncertainty. For the most recent rollout group of prompt $x_i$, define
+% \begin{equation}
+%     H_i = \frac{1}{G} \sum_{r=1}^{G} U^{(r)}(x_i),\quad
+%     U^{(r)}(x_i) = \frac{1}{L_r} \sum_{l=1}^{L_r} \mathcal{H}(p^{(r)}_{\theta,l}),
+% \end{equation}
+% where $p^{(r)}_{\theta,l}$ is the token distribution at response position $l$ in rollout $r$, $L_r$ is the response length, and
+% \begin{equation}
+%     \mathcal{H}(p_{\theta}(\cdot | c)) = - \sum_{v \in \mathcal{V}} p_{\theta}(v | c) \log p_{\theta}(v | c).
+% \end{equation}
+% We normalize $H_i$ within the current metadata pool:
+% \begin{equation}
+%     P_{\mathrm{Ent}}(x_i)=\frac{H_i-H_{\min}}{H_{\max}-H_{\min}+\epsilon},
+% \end{equation}
+% where $\epsilon$ is a small constant for numerical stability.
+
+% \textbf{Candidate sampling.}
+% The Stage~1 selection probability combines difficulty saturation and uncertainty:
+% \begin{equation}
+%     P_{\mathrm{select}}(x_i) = \lambda P_{\mathrm{Rew}}(x_i)+(1-\lambda)P_{\mathrm{Ent}}(x_i),
+% \end{equation}
+% where $\lambda$ balances reward-history pruning and entropy-based prioritization. Stage~1 samples candidates according to $P_{\mathrm{select}}$ until the candidate pool is large enough for Stage~2 verification. This coarse narrowing is effectively zero-cost because it reuses metadata already produced by previous training iterations.
+\textbf{Reward-history score.}
+For each prompt $x_i\in\mathcal{D}$, HIVE stores a trace $\mathcal{T}_i^{(t)}=\{R_{i,j}\}_{j=1}^{n_i}$ before training step $t$, where $R_{i,j}=\{r_{i,j}^{(k)}\}_{k=1}^{G}$ is the reward group recorded at the $j$-th previous visit. Let $\zeta_{i,j}=\mathbf{1}\{\operatorname{Var}(R_{i,j})=0\}$ indicate whether that visit produced a zero-variance reward group. HIVE summarizes recent saturation by the length of the trailing zero-variance run:
+\begin{equation}
+\label{eq:stage1_reward_score}
+\begin{aligned}
+&z_i^{(t)}
+=\max\left\{k\in\{0,\ldots,n_i\}:
+\prod_{j=n_i-k+1}^{n_i}\zeta_{i,j}=1\right\},\\
+&s_{\mathrm{rew}}(x_i)
+=\left(p_{e,\tau_i}^{(t)}\right)^{z_i^{(t)}},
+\qquad \tau_i\in\{\mathrm{easy},\mathrm{hard}\}.
+\end{aligned}
+\end{equation}
+Here $\tau_i$ distinguishes all-correct and all-incorrect zero-variance prompts, and $p_{e,\tau_i}^{(t)}\in(0,1)$ is the corresponding exploration probability. Repeated zero-variance outcomes therefore decay the retention score exponentially, but do not deterministically discard the prompt. This is important because an intractable prompt may later become learnable as the policy improves.
+
+HIVE adapts the easy and hard exploration probabilities online. If the observed zero-variance ratio $\hat{\rho}_{\tau}^{(t)}$ for type $\tau$ exceeds the target $\alpha$, HIVE decreases $p_{e,\tau}$; otherwise, it increases it:
+\begin{equation}
+\label{eq:adaptive_pe}
+p_{e,\tau}^{(t+1)}
+=
+\left[
+p_{e,\tau}^{(t)}
++\Delta p\cdot\operatorname{sign}\!\left(\alpha-\hat{\rho}_{\tau}^{(t)}\right)
+\right]_{[p_{\min},p_{\max}]},
+\qquad \tau\in\{\mathrm{easy},\mathrm{hard}\},
+\end{equation}
+where $[\cdot]_{[p_{\min},p_{\max}]}$ denotes projection to a valid probability range. This update prevents HIVE from persistently over-sampling either mastered prompts or currently intractable prompts.
+
+\textbf{Response-entropy score.}
+Historical response-side entropy provides a low-cost prior for uncertainty. For the most recent rollout group of $x_i$, let
+\begin{equation}
+\label{eq:stage1_entropy_score}
+\begin{aligned}
+&U_i^{(r)}
+=\frac{1}{L_{i,r}}\sum_{\ell=1}^{L_{i,r}}
+\mathcal{H}\!\left(p_{\theta}(\cdot\mid x_i,o_{i,<\ell}^{(r)})\right),
+\qquad
+H_i=\frac{1}{G}\sum_{r=1}^{G}U_i^{(r)},\\
+&s_{\mathrm{ent}}(x_i)
+=\frac{H_i-H_{\min}}{H_{\max}-H_{\min}+\epsilon},
+\qquad\;\;
+\mathcal{H}(p)=-\sum_{v\in\mathcal{V}}p_v\log p_v .
+\end{aligned}
+\end{equation}
+The normalization is computed within the current metadata pool. It makes the entropy score comparable across training stages even as the policy becomes more confident.
+
+\textbf{Candidate sampling.}
+The Stage~1 acceptance probability combines recent reward saturation and historical uncertainty:
+\begin{equation}
+\label{eq:stage1_select}
+P_{\mathrm{S1}}(x_i)
+=
+\lambda s_{\mathrm{rew}}(x_i)
++(1-\lambda)s_{\mathrm{ent}}(x_i),
+\qquad \lambda\in[0,1].
+\end{equation}
+HIVE samples prompts with Bernoulli probability $P_{\mathrm{S1}}(x_i)$ until it obtains a candidate set $\mathcal{C}_t$ for Stage~2. Since all quantities in Eq.~\eqref{eq:stage1_select} are from existing training metadata, Stage~1 is zero-cost.
+
+\subsection{Stage 2: Online-Verified Selection}
+\label{subsec:stage2}
+% Stage~1 is efficient, but its metadata becomes stale as model is consistently trained. Stage~2 therefore verifies candidate prompts under the current policy before rollouts are generated. Full online verification through response generation would require $G$ responses per candidate, so HIVE instead uses prompt-side entropy as a lightweight proxy for current uncertainty.
+Stage~1 is efficient, but Section~\ref{sec:obs-preliminary} shows why it cannot be the final decision rule: reward and entropy traces become stale as the current policy moves. Stage~2 therefore verifies the candidate set $\mathcal{C}_t$ under the current policy $\pi_{\theta_t}$ before rollouts are generated. Instead of generating $G$ responses per candidate, HIVE uses prompt-side entropy as a lightweight proxy for current uncertainty.
+
+% \textbf{Prompt-side entropy.}
+% For a prompt sequence $x=(x_1,\ldots,x_{L_p})$, HIVE computes
+% \begin{equation}
+%     V(x) \coloneqq \frac{1}{L_p-1} \sum_{l=2}^{L_p} \mathcal{H}(p_{{\theta}}(\cdot | x_{<l})).
+% \end{equation}
+% This quantity is online because it is evaluated with the current policy parameters, but efficient because it only requires a prompt-side forward pass. We use it as a verifier of whether a historically promising prompt remains uncertain for the current model.
+
+% We provide a rank-consistency justification under simplifying assumptions, rather than treating prompt entropy as a complete theoretical characterization of utility. Under the representation approximation and entropy propagation assumptions stated in Appendix~\ref{subsec:thm-theoretical-proof}, prompt-side entropy preserves the ranking of expected response-side entropy when the prompt-entropy margin is larger than the combined approximation and sampling noise:
+% \begin{theorem}[Informal rank consistency]
+% \label{thm:ranking-informal}
+% For any pair of prompts $(x,x')$, if the difference in their prompt-side entropy is sufficiently large as specified in Appendix~\ref{appendix-sec:proof-thm}, then with high probability
+% \begin{equation}
+%  \operatorname{sign}(V(x)-V(x')) = \operatorname{sign}(\hat{U}(x)-\hat{U}(x')),
+% \end{equation}
+% where $\hat{U}$ is the empirical response-side entropy estimator.
+% \end{theorem}
+% The main role of this result is to explain why prompt-side entropy can serve as a low-cost online verifier. Our empirical evidence, including the prompt--response entropy correlation in Appendix~\ref{appendix-sec:additional-exp} and the ablations in Section~\ref{subsec:exp-component-study}, provides the primary support for using this proxy in HIVE.
+
+% \textbf{Median verification gate.}
+% Let $\mathcal{D}_{S1}$ be the candidate set produced by Stage~1 and the final rollout set can be obtained as follows: 
+% \begin{equation}
+%     \mathcal{D}_{\mathrm{final}} = \{x \in \mathcal{D}_{S1} \mid V(x) \geq \gamma\},\;\text{where}\;\gamma \coloneqq \mathrm{median}\left(\{ V(x) \mid x \in \mathcal{D}_{S1} \}\right).
+% \end{equation}
+% $\gamma$ is the prompt-side entropy for all candidates and sets an adaptive threshold. The median gate keeps the throughput stable while adapting the threshold to the current candidate pool. It also matches the purpose of Stage~2: reject stale low-uncertainty prompts after history-informed narrowing, without paying for full response-side verification.
+
+% \textbf{Computational cost.}
+% For each candidate, Stage~2 requires one prompt-side forward pass over $L_p$ prompt tokens. A rollout-based verifier would require generating $G$ responses of average length $L_r$ before deciding whether to train on the prompt. Since $L_r$ is typically much larger than $L_p$ in reasoning RLVR and generation is the dominant cost, prompt-side verification is negligible relative to multi-rollout filtering. Section~\ref{subsec:further-experiment} empirically confirms this: online verification adds only 0.82 seconds per iteration, less than 0.4\% of the step time.
+\textbf{Prompt-side entropy.}
+For a prompt $x=(x_1,\ldots,x_{L_x})$, HIVE computes
+\begin{equation}
+\label{eq:prompt_entropy}
+V_t(x)
+=
+\frac{1}{L_x-1}\sum_{\ell=2}^{L_x}
+\mathcal{H}\!\left(p_{\theta_t}(\cdot\mid x_{<\ell})\right).
+\end{equation}
+This score is online because it is evaluated with the current policy parameters, and efficient because it only requires a prompt-side forward pass. In the HIVE pipeline, this verifier complements Stage~1: reward history filters repeated zero-variance regions, while $V_t(x)$ checks whether a historically promising candidate still exhibits current-policy uncertainty.
+
+We use an informal rank-consistency result to justify prompt entropy as a verifier, rather than as a complete utility model. Under the representation approximation and entropy propagation assumptions stated in Appendix~\ref{subsec:thm-theoretical-proof}, prompt-side entropy preserves the ranking of expected response-side entropy when the prompt-entropy margin is larger than the combined approximation and sampling noise.
+\begin{theorem}[Informal rank consistency]
+\label{thm:ranking-informal}
+For any pair of prompts $(x,x')$, if the difference in their prompt-side entropy is sufficiently larger as specified in Appendix~\ref{appendix-sec:proof-thm}, then with high probability
+\begin{equation}
+\operatorname{sign}\!\left(V_t(x)-V_t(x')\right)
+=
+\operatorname{sign}\!\left(\hat{U}_t(x)-\hat{U}_t(x')\right),
+\end{equation}
+where $\hat{U}_t$ is the empirical response-side entropy estimator under the current policy.
+\end{theorem}
+The theorem explains why prompt-side entropy can serve as a low-cost online verifier. The main support for using this proxy remains empirical: Appendix~\ref{appendix-sec:additional-exp} reports prompt--response entropy correlations, and Section~\ref{subsec:exp-component-study} shows that removing Stage~2 weakens the accuracy--rollout tradeoff.
+
+\textbf{Median verification gate.}
+Given the Stage~1 candidate set $\mathcal{C}_t$, HIVE uses a median gate:
+\begin{equation}
+\label{eq:median_gate}
+\gamma_t=\operatorname{median}\{V_t(x):x\in\mathcal{C}_t\},
+\qquad
+\mathcal{B}_t=\{x\in\mathcal{C}_t:V_t(x)\ge\gamma_t\}.
+\end{equation}
+The final set $\mathcal{B}_t$ is the rollout batch for the current GRPO step. The median threshold keeps throughput stable, adapts to the current candidate distribution, and rejects stale low-uncertainty prompts.
+
+\textbf{Computational cost.}
+For $|\mathcal{C}_t|$ candidates, Stage~2 costs $\mathcal{O}(|\mathcal{C}_t|)$ times forward computation. A rollout-based verifier would require $\mathcal{O}(|\mathcal{C}_t|GL_r)$ times. Thus prompt-side verification is negligible relative to multi-rollout filtering. Section~\ref{subsec:further-experiment} empirically confirms this: online verification adds only 0.82 seconds per iteration, less than 0.4\% of the step time.
+\endgroup

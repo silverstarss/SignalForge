@@ -1,0 +1,89 @@
+\section{Empirical Observations: The Moving Learning Edge}
+\label{sec:obs-preliminary}
+This section dissects the training dynamics of GRPO-style RLVR to identify what makes a 
+prompt useful for policy optimization and why effective selection in RLVR is an online tracking problem. 
+We first recall why low-utility prompts produce no GRPO learning signal, then show that the useful 
+prompts concentrate at a moving edge characterized by intermediate difficulty and high uncertainty. {The experimental details are reported in Appendix~\ref{sec:preliminary-setup}.}
+
+% \red{The detailed experimental setting is described in Appendix~\ref{appendix:preliminary-experiment-setting}}.
+% \red{till here}
+\input{sections/figures/intro-a-b-figure}
+\input{sections/figures/method-framework}
+
+\textbf{Zero-variance prompts produce vanishing advantages.}
+Group relative policy optimization (GRPO)~\cite{shao2024deepseekmath} is widely used in RLVR for reasoning models~\cite{guo2025deepseek,yang2025qwen3technicalreport}. For a prompt $q$, GRPO samples a group of responses $\{o_i\}_{i=1}^G$ and optimizes
+% \begin{equation}
+% \label{eq:grpo}
+% \begin{aligned}
+% \mathcal{J}_{\mathrm{GRPO}}(\theta)
+% =
+% \mathbb{E}_{\substack{
+% q \sim P(Q), \{o_i\}_{i=1}^G \sim \pi_{\theta_{\mathrm{old}}}(\cdot \mid q)
+% }}
+% \Bigg[
+% \frac{1}{G}\sum_{i=1}^G \frac{1}{|o_i|}
+% \sum_{t=1}^{|o_i|} \Bigg(
+% \min \left(\rho_{i,t}(\theta) \hat{A}_{i, t},&\\
+%  \operatorname{clip}(\rho_{i,t}, 1 \pm \varepsilon) \hat{A}_{i, t}\right)
+% - \beta D_{\mathrm{KL}}(\pi_\theta \,\|\, \pi_{\mathrm{ref}})
+% \Bigg)
+% \Bigg].&
+% \end{aligned}
+% \end{equation}
+\begin{equation}
+\label{eq:grpo}
+\begin{aligned}
+\mathcal{J}_{\mathrm{GRPO}}(\theta)
+&=
+\mathbb{E}_{\substack{
+q \sim P(Q),\ \{o_i\}_{i=1}^{G} \sim \pi_{\theta_{\mathrm{old}}}(\cdot \mid q)
+}}
+\Biggl\{
+\frac{1}{G}\sum_{i=1}^{G}\frac{1}{|o_i|}
+\sum_{t=1}^{|o_i|}
+\biggl(
+\min \Bigl[
+\frac{\pi_{\theta}(o_{i,t}\mid q,o_{i,<t})}{\pi_{\theta_{\mathrm{old}}}(o_{i,t}\mid q,o_{i,<t})}\hat{A}_{i,t}, \\
+&\qquad\qquad\;
+\operatorname{clip}(
+\frac{\pi_{\theta}(o_{i,t}\mid q,o_{i,<t})}{\pi_{\theta_{\mathrm{old}}}(o_{i,t}\mid q,o_{i,<t})}, 1-\varepsilon, 1+\varepsilon
+)\hat{A}_{i,t}
+\Bigr]
+-\beta D_{\mathrm{KL}}\!\left[
+\pi_{\theta}\,\|\,\pi_{\mathrm{ref}}
+\right]
+\biggr)
+\Biggr\},
+\end{aligned}
+\end{equation}
+% where
+% \begin{equation}
+%     \mathcal{L}^{\mathrm{clip}}_{i,t}(\theta)=\min \left(\rho_{i,t}(\theta) \hat{A}_{i, t}, \operatorname{clip}(\rho_{i,t}, 1 \pm \varepsilon) \hat{A}_{i, t}\right).
+% \end{equation}
+% where the group-normalized advantage $\hat{A}_{i}$ is computed as follows\red{ need more justifications on the notations}:
+where $P(Q)$ is the prompt distribution, $G$ is the response group size, and $o_{i,t}$ denotes the $t$-th token
+of response $o_i$. The KL penalty with weight $\beta$ anchors $\pi_\theta$ to the
+reference policy $\pi_{\mathrm{ref}}$. Since RLVR gives a sequence-level reward $r_i$, all tokens in $o_i$
+share the group-normalized advantage $\hat{A}_{i,t}=\hat{A}_{i}$:
+\begin{equation}
+\label{eq:grpo_advantage}
+\hat{A}_{i} = \frac{r_i - \mathrm{mean}(\{r_i\}_{i=1}^G)}{\mathrm{std}(\{r_i\}_{i=1}^G)}.
+\end{equation}
+When all sampled responses for a prompt receive the same reward, the reward variance is zero and the prompt contributes no informative policy-gradient signal. Such prompts are either already easy for the current policy or still too hard to discriminate among sampled responses. Rollout scaling therefore wastes compute unless it avoids these zero-variance regions.
+
+\textbf{Utility concentrates at an intermediate-difficulty, high-entropy edge.}
+Zero-variance filtering is necessary but not sufficient: among prompts with non-zero gradients, some still provide much stronger learning signal than others. Following previous analyses~\cite{kim2025mitigatinglengthbiasrlhf,paul2021DataDiet,fayyaz2022bertdatadietfinding,singhal2024aCOLM}, we use length-normalized gradient norm as a proxy for per-prompt utility and study how it varies with empirical difficulty and response-side entropy.
+
+Figure~\ref{fig:intro-learning-edge} shows two consistent patterns. First, within a fixed difficulty band, gradient norm increases with response-side entropy. Second, at a fixed entropy level, utility follows an inverted-U shape over 
+difficulty: trivial prompts and intractable prompts have low utility, while intermediate-difficulty prompts have 
+higher utility. The strongest learning signal appears at the intersection of these two conditions. We call this 
+region the \textit{learning edge}. This observation explains why merely removing zero-variance prompts is too 
+coarse: \textit{the best rollout budget should be allocated to prompts that are both learnable and uncertain under the 
+current policy}.
+
+\textbf{Historical metadata becomes stale as the edge moves.}
+As the policy updates, the model's state of knowledge changes, and historical 
+metadata such as reward trajectories and response entropies can quickly become stale~\cite{cui2025entropymechanismreinforcementlearning,tomihari2026learningdynamicsrlposttraining,li2026stalefeedbackcoevolvingcritics}. 
+To quantify this effect, we compare prompts selected by historical metadata from the previous training window 
+with prompts selected by online metrics recomputed under the current policy. As shown in Figure~\ref{fig:intro-utility-shift}, 
+historical selection yields lower current gradient norms, whereas online selection isolates prompts with high utility. Figure~\ref{fig:intro-utility-shift} further shows that prompts frequently move among High, Low, and Zero utility classes across training steps. Together, these results indicate that: \textit{a selector must revalidate candidate prompts under the current policy to keep tracking the moving edge}.

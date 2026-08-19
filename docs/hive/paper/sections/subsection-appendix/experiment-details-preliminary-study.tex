@@ -1,0 +1,41 @@
+\section{{Experimental Settings for Preliminary Analysis}}
+\label{sec:preliminary-setup}
+
+To derive the empirical observations regarding prompt utility and metadata staleness presented in Section~\ref{sec:obs-preliminary}, we conducted a focused study using the following setup.
+
+\textbf{Model and Dataset.} We used Qwen2.5-Math-1.5B~\cite{yang2024qwen25mathtechnicalreportmathematical} as the base policy model. The model was trained on the DAPO+MATH dataset~\cite{yu2025dapo}. %We randomly sampled 2,000 prompts for the detailed gradient and entropy analysis.
+
+\textbf{Training Configuration.} The model was trained using GRPO~\cite{shao2024deepseekmath} with a group size of $G=8$. To capture the diversity required for entropy analysis, we set the sampling temperature to $T=1.0$. Training was conducted on 8$\times$NVIDIA A100 (80GB) GPUs.
+
+\textbf{Metric Definitions.}
+\begin{itemize}
+    % \item \textbf{Gradient Norm (Utility):} We quantify the learning signal using the $L_2$ norm of the gradients with respect to the last layer of the policy network, normalized by response length. This serves as a proxy for the update magnitude provided by a prompt.
+    % \item \textbf{Difficulty:} We define the difficulty of a prompt $x$ as the empirical accuracy observed across $G$ rollouts, calculated as $Acc_{<T}(x) = \frac{1}{G\cdot T}\sum_{t=1}^{T}\sum_{i=1}^G \mathbb{I}(r_{i,t}=1)$, where $\mathbb{I}$ is the indicator function for a correct response. %For the heatmap analysis, we discretized difficulty into 5 bins: $[0, 0.2], (0.2, 0.4], (0.4, 0.6], (0.6, 0.8],$ and $(0.8, 1.0]$.
+    % \item \textbf{Response Entropy:} Defined as the average token-level entropy of the generated response, averaged over all $G$ rollouts for a given prompt.
+    \item \textbf{Effective prompt ratio.} A prompt is effective at a training step if its rollout group has non-zero reward variance and therefore yields a non-vanishing GRPO advantage. The effective prompt ratio is the fraction of selected prompts that are effective under the current policy.
+    \item \textbf{Gradient norm (utility).} We quantify the learning signal of a prompt by the $L_2$ norm of its policy gradient with respect to the last layer, normalized by response length. This serves as a proxy for the update magnitude contributed by the prompt.
+    \item \textbf{Empirical difficulty.} We estimate prompt difficulty from rollout accuracy. For a prompt $x$ evaluated over a window $\mathcal{W}$, we compute
+    \begin{equation}
+        A_{\mathcal{W}}(x)=\frac{1}{G|\mathcal{W}|}\sum_{t\in\mathcal{W}}\sum_{i=1}^{G}\mathbb{I}(r_{i,t}=1).
+    \end{equation}
+    Low accuracy corresponds to hard prompts, while high accuracy corresponds to easy prompts.
+    \item \textbf{Response-side entropy.} For each prompt, we compute the average token-level entropy of generated responses and then average over the $G$ rollouts.
+\end{itemize}
+
+% \textbf{Staleness Quantification Setup.} To analyze the decay of historical reliability (Figure~\ref{fig:intro-utility-shift}), we employed a time-lagged comparison. We recorded the ``Historical" metrics (difficulty and entropy) at every training step. We then continued training for $\Delta=100$ steps. At step $\Delta$, we evaluated the same prompts to obtain ``Online'' metrics. 
+% \begin{itemize}
+%     \item \textbf{Historical Selection:} Selects the top-20\% of prompts based on the utility predicted by metadata recorded across the $\Delta t$ training steps.
+%     \item \textbf{Online Selection:} Selects the top-20\% of prompts based on real-time metrics computed at step $\Delta$.
+% \end{itemize}
+% We then computed the actual gradient norms for both selected sets at step $t+\Delta$ to compare their effectiveness.
+\textbf{Figure~\ref{fig:intro-history-staleness}: effective-prompt retention.}
+We compare a history-only selector with a history-plus-online selector. The history-only selector ranks candidates using cached reward and response-entropy metadata from previous training steps. The history-plus-online selector uses the same historical candidate source but revalidates candidates under the current policy before rollout. We report the effective prompt ratio throughout training.
+
+\textbf{Figure~\ref{fig:intro-high-entropy}: high-entropy non-zero-gradient prompts.}
+To isolate utility differences among prompts that already pass zero-variance filtering, we compare DS with a diagnostic DS+High-Entropy variant. DS+High-Entropy prioritizes prompts with higher response-side entropy among prompts with non-zero gradients. We plot evaluation accuracy against the cumulative number of non-zero-gradient rollouts, so the comparison is made under matched informative-rollout budgets.
+
+\textbf{Figure~\ref{fig:intro-learning-edge}: learning edge.}
+We bin prompts by empirical difficulty and response-side entropy, using five bins for each axis. For every bin, we report the mean length-normalized gradient norm. The heatmap shows that utility is largest when prompts are neither trivial nor intractable and still induce high response-side uncertainty.
+
+\textbf{Figure~\ref{fig:intro-utility-shift}: moving of the utility.}
+We sample 515 non-zero reward variance prompts observed at steps 500 or 1000. Prompts with zero reward variance are assigned to the Zero class. The remaining non-zero-gradient prompts are split into High and Low utility classes by their length-normalized gradient norm at each step. The Sankey diagram reports transitions among these classes, quantifying how historical utility labels become stale as the policy evolves.

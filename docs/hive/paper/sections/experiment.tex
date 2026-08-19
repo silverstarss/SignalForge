@@ -1,0 +1,83 @@
+\input{sections/tables/main-merge-time}
+\section{Experiments}
+\label{sec:experiments}
+\setcounter{topnumber}{2}
+% We evaluate HIVE along the three requirements introduced in Section~\ref{sec:method}. First, does HIVE preserve reasoning accuracy while using fewer rollouts? Second, is HIVE cheap enough to be practical? Third, does HIVE continue to reject stale or zero-variance prompts as the learning edge moves?
+We evaluate HIVE along the edge-tracking objectives introduced in Section~\ref{sec:method}. First, does HIVE preserve reasoning accuracy while using fewer rollouts? Second, is HIVE cheap enough to be practical? Third, does HIVE keeps rejecting stale or low-utility prompts as the learning edge moves?
+
+\subsection{Experimental Settings}
+% \best{Models and datasets.} We evaluate Qwen2.5-Math-1.5B/7B~\cite{yang2024qwen25mathtechnicalreportmathematical}, DeepSeek-R1-Distill-Qwen-1.5B~\cite{guo2025deepseek}, Qwen2.5-14B/32B~\cite{qwen2.5-large}, and Llama-3.2-3B-Instruct~\cite{grattafiori2024llama3}. We use a context length of 4K for Qwen2.5-Math-1.5B/7B, 8K for DeepSeek-R1-Distill-Qwen-1.5B and Llama-3.2-3B-Instruct, and 16K for Qwen2.5-14B/32B. We train on two math-reasoning corpora following~\cite{zheng2025act}: DAPO+MATH (DM), which combines DAPO~\cite{yu2025dapo} and MATH~\cite{hendrycks2021measuringmathematicalproblemsolving}, and a 30K subset of Open-R1~\cite{openr1}.
+\best{Models and datasets.} We evaluate Qwen2.5-Math-1.5B/7B~\cite{yang2024qwen25mathtechnicalreportmathematical}, DeepSeek-R1-Distill-Qwen-1.5B~\cite{guo2025deepseek}, Qwen3-4B-Base~\cite{yang2025qwen3technicalreport}, Qwen2.5-14B/32B~\cite{qwen2.5-large}, and Llama-3.2-3B-Instruct~\cite{grattafiori2024llama3}. We use a context length of 4K for Qwen2.5-Math-1.5B/7B, 8K for DeepSeek-R1-Distill-Qwen-1.5B, Qwen3-4B-Base, and Llama-3.2-3B-Instruct, and 16K for Qwen2.5-14B/32B. We train on two math-reasoning corpora following~\cite{zheng2025act}: DAPO+MATH (DM), which combines DAPO~\cite{yu2025dapo} and MATH~\cite{hendrycks2021measuringmathematicalproblemsolving}, and a 30K subset of Open-R1~\citet{openr1}.
+
+% \best{Training and evaluation.} HIVE is implemented with verl~\cite{verl2025} and vLLM~\cite{vLLM2023SOSP}. Main experiments use 8$\times$A100-80G GPUs. We evaluate on six mathematical reasoning benchmarks: Math500~\cite{hendrycks2021measuringmathematicalproblemsolving}, AIME24~\cite{aops2024aime}, AMC~\cite{aops2024amc}, Minerva Math~\cite{NEURIPS2022_18abbeef}, Gaokao~\cite{zhang2024gaokao}, and Olympiad Bench~\cite{he-etal-2024-olympiadbench}. Following~\cite{zheng2025act}, we report the checkpoint with the best average score across the six benchmarks. Appendix~\ref{appendix-sec:detailed-experimental-setting} gives full training details.
+\best{Training and evaluation.} HßIVE is implemented with verl~\cite{verl2025} and vLLM~\cite{vLLM2023SOSP}. Main experiments use 8$\times$A100-80G GPUs and train each method for 1000 steps. We evaluate on six mathematical reasoning benchmarks: Math500~\cite{hendrycks2021measuringmathematicalproblemsolving}, AIME24~\cite{aops2024aime}, AMC~\cite{aops2024amc}, Minerva Math~\cite{NEURIPS2022_18abbeef}, Gaokao~\cite{zhang2024gaokao}, and Olympiad Bench~\cite{he-etal-2024-olympiadbench}. Following~\cite{zheng2025act}, we report the checkpoint with the best average score on the six benchmarks. Appendix~\ref{appendix-sec:detailed-experimental-setting} gives full training details.
+
+\best{Baselines.} We compare against Dynamic Sampling (DS)~\cite{yu2025dapo}, a rollout-based online filter; Pre-filter~\cite{Gao2025PCL}, a fixed offline prompt filter applied before RL training; GRESO~\cite{zheng2025act}, a history-based selector; and PCL~\cite{Gao2025PCL}, an auxiliary prompt-curriculum selector. Since the original PCL evaluation uses a fixed wall-clock budget, whereas our main protocol fixes training at 1000 steps, we evaluate Pre-filter and PCL with a conservative two-run protocol. For the rollout budget in Table~\ref{tab:main_comparison}, we run each method once using the original PCL settings and once using our common settings, and report the higher average benchmark score. %GRESO, Pre-filter, and PCL are therefore compared under matched rollout budgets, so their differences mainly reflect selection quality rather than rollout volume.
+
+\subsection{Main Results: Accuracy Under Lower Rollout Cost}
+\label{subsec:main-experiment}
+% \input{sections/figures/introduction}
+% Table 2 (Open-R1) and Figure 5 (Qwen2.5-14B/32B) merged into a single
+% top-of-page side-by-side float for compactness.
+\input{sections/exp-table-plux-figure}
+
+\best{HIVE preserves accuracy while reducing rollouts.}
+We compare HIVE against Dynamic Sampling (DS)~\cite{yu2025dapo}, a rollout-based online filter, and GRESO~\cite{zheng2025act}, a history-based selector. Table~\ref{tab:model_performance} reports results on DAPO+MATH across four model families. HIVE consistently uses fewer rollouts than both baselines while maintaining comparable average accuracy. On Qwen2.5-Math-7B, HIVE reduces rollouts by 70\% compared with DS (13.1M to 3.9M) and achieves the highest average accuracy (59.7\% vs. 57.8\% for DS and 58.6\% for GRESO), reaching comparable accuracy with substantially fewer generated responses.
+
+\best{The gains transfer across datasets and model scales.}
+Table~\ref{tab:openr1-main-exp} evaluates Qwen2.5-Math-1.5B/7B on Open-R1. HIVE again keeps comparable or better average accuracy while reducing rollouts, reaching 4.7$\times$ fewer rollouts than DS on Qwen2.5-Math-7B. Figure~\ref{fig:scale_14b_32b} extends the comparison to Qwen2.5-14B and Qwen2.5-32B. HIVE follows a similar convergence trajectory to DS and GRESO while requiring fewer rollouts; for Qwen2.5-14B over 800 steps, HIVE uses 1.56M rollouts compared with 1.74M for GRESO and 3.45M for DS.
+
+\best{Wall-clock savings come from rollout reduction, not hidden overhead.}
+Table~\ref{tab:efficiency_cost} decomposes end-to-end training time. HIVE reduces rollout time by up to 3.8$\times$ and total training time by up to 23$\times$ over DS. On Qwen2.5-Math-7B, total training time drops from 198.4 hours (DS) and 112.3 hours (GRESO) to 85.8 hours (HIVE), while rollout time drops from 153.7 and 66.3 to 40.2.
+
+\begin{wraptable}[10]{r}{0.4\textwidth}
+    \vspace{-1.2em}
+    % \vskip -0.2in
+    \centering
+    \caption{Performance comparison (\%) on tool calling tasks.}
+    \label{tab:tool_calling}
+    \small
+    \setlength{\tabcolsep}{3.2pt}
+    \renewcommand{\arraystretch}{0.92}
+    \begin{tabular}{lcc}
+        \toprule
+        Method & BFCL-V2 & \#Rollout \\
+        \midrule
+        DS & 79.08 & 5.3M \\
+        Pre-filter & 77.04 & 1.4M \\
+        GRESO & 78.96 & 1.4M \\
+        PCL & 76.84 & 1.4M \\
+        HIVE & \best{79.26} & \best{1.1M} \\
+        \bottomrule
+    \end{tabular}
+    \vspace{-1.2em}
+    % \vskip -0.2in
+\end{wraptable}
+\noindent\best{Performance on tool calling tasks.} Besides, we also verify the effectiveness of HIVE on tool calling tasks. We train Qwen2.5-1.5B on 80\% prompts samples from BFCL-V2~\cite{gorilla-openfunctions-v2} and evaluate the performance on the remaining 20\% subset~\cite{guo2025sample}. As shown in Table~\ref{tab:tool_calling}, HIVE achieves the highest BFCL-V2 score, slightly exceeding DS (79.26 vs. 79.08) while using only 1.1M rollouts instead of 5.3M. This corresponds to a 4.8$\times$ rollout reduction relative to DS. Under the same low-rollout regime, HIVE also outperforms the static Pre-filter baseline, the history-only GRESO selector, and the auxiliary PCL selector. These results suggest that moving-edge tracking is not only specific to mathematical reward signals, but also applicable on tool-calling tasks, where HIVE continues to concentrate rollout compute on informative prompt.
+
+\subsection{Mechanism Analysis: Efficiency and Moving-Edge Adaptation}
+\label{subsec:further-experiment}
+\input{sections/figures/exp-training-dynamics}
+
+\best{Online verification is cheap enough to run before rollouts.}
+Figure~\ref{fig:per_step_time_analysis} isolates the per-step overhead of Stage~2. Computing prompt-side entropy adds only 0.82 seconds, less than 0.4\% of the iteration time, while the rollout phase alone takes 147.46 seconds. This supports the efficiency side of the triad: HIVE gains online information without paying for response generation during selection.
+
+\best{HIVE improves effective rollout throughput.}
+Figure~\ref{fig:total_rollout} shows that HIVE accumulates effective rollouts per hour fastest. Figure~\ref{fig:gen_time} further shows that HIVE maintains low rollout-generation latency throughout training, while GRESO becomes slower later in training. This is consistent with metadata staleness: a history-only selector increasingly admits prompts that look useful in the log but no longer produce efficient current updates. Figure~\ref{fig:rollout_step} shows that HIVE also generates fewer rollout groups per step, concentrating compute on a smaller set of verified prompts near the current edge.
+
+% Figure 5 is now combined with Table 2 in sections/exp-table-plux-figure.tex
+% (\input-ed near the top of subsection "Main Results"); keeping the
+% standalone variants here as comments for reference.
+% \input{sections/figures/exp-scale-14b-32b}
+% \input{sections/figures/exp-scale-14b-32b-vertical.tex}
+\input{sections/figures/exp-merge4-zerovar-component}
+\best{HIVE rejects stale zero-variance prompts as training evolves.}
+The zero-variance ratio measures how often selected prompts produce no informative gradient. Figures~\ref{fig:zerovar_easy} and~\ref{fig:zerovar_hard} show that DS wastes a large fraction of rollouts on easy zero-variance prompts as the model improves, while GRESO remains vulnerable to stale historical records. HIVE maintains a lower zero-variance ratio for both easy and hard prompts, indicating that online verification helps track the moving edge rather than relying on outdated metadata.
+
+\subsection{Component Study: Why Both Stages Matter}
+\label{subsec:exp-component-study}
+
+\best{The entropy gate adapts with the current policy.}
+Figure~\ref{fig:gamma_entropy} tracks the Stage~2 median threshold $\gamma$, which decreases as the model becomes more confident. This behavior is expected: as the policy improves, the prompt-side uncertainty distribution shifts, and a fixed threshold would either over-prune or admit stale prompts. The median gate keeps the verification rule relative to the current candidate pool. 
+\best{The two-stage decomposition is necessary.}
+Figure~\ref{fig:ablation} compares the full HIVE pipeline with variants that remove either stage. Without Stage~2, HIVE loses online precision and becomes more vulnerable to stale metadata. Without Stage~1, the verifier receives too many low-value candidates, reducing efficiency. The full method gives the best accuracy--rollout tradeoff, supporting the decomposition into efficient historical narrowing followed by online verification.

@@ -1,0 +1,97 @@
+\begin{algorithm}[t]
+\caption{Training Iteration in HIVE}
+\label{alg:hive-training}
+\begin{algorithmic}[1]
+    \REQUIRE Dataset $\mathcal{D}$; Historical trace $\mathcal{T}$; Target training batch size $B_{\text{t}}$; Group size $G$; Base exploration probability $p_{e,easy}$, $p_{e,hard}$; Step size $\Delta p$; Target zero-var ratio $\alpha$.
+    
+    \STATE $\mathcal{D}_{cand} \gets \emptyset$
+    \STATE $n_{easy}, n_{hard}, n_{total} \gets 0, 0, 0$
+    
+    \STATE \textcolor{gray}{\textit{\# Stage 1: History-Informed Selection}}
+    \REPEAT
+        \STATE $\{x_i\} \gets \text{Sample raw prompts from } \mathcal{D}$
+        \FOR{each $x_i$ in batch}
+            \STATE Retrieve zero-var count $z_i$, zero-var type, and history entropy $H_i$ from $\mathcal{T}$
+            \STATE Choose $p_e \gets p_{e,easy}$, $p_{e,hard}$, or the default $p_e$ according to the zero-var type
+            \STATE $P_{Rew} \gets p_e^{z_i}; \quad P_{Ent} \gets \text{Normalize}(H_i)$
+            \STATE $P_{select} \gets \lambda P_{Rew} + (1-\lambda) P_{Ent}$
+            
+            \IF{$\text{Bernoulli}(P_{select}) = 1$}
+                \STATE $\mathcal{D}_{cand} \gets \mathcal{D}_{cand} \cup \{x_i\}$
+            \ENDIF
+        \ENDFOR
+    % \UNTIL{$|\mathcal{D}_{cand}| \geq 2 \cdot B_{\text{t}}$}
+    \UNTIL{$|\mathcal{D}_{cand}| \geq B_{\mathrm{cand}}$ \quad\textcolor{gray}{\textit{\# $B_{\mathrm{cand}}{=}1.5\,B_{\mathrm{t}}$ in our experiments; see Appendix~\ref{appendix-subsec:hive-hyperparams}}}}
+
+    \STATE \textcolor{gray}{\textit{\# Stage 2: Online-Verified Selection}} %(Deterministic Gate)
+    \STATE Calculate prompt entropy $V(x)$ for all $x \in \mathcal{D}_{cand}$
+    \STATE $\gamma \gets \text{median}(\{V(x) \mid x \in \mathcal{D}_{cand}\})$
+    \STATE $\mathcal{D}_{final} \gets \{x \in \mathcal{D}_{cand} \mid V(x) \geq \gamma\}$
+
+    \STATE \textcolor{gray}{\textit{\# Rollout Phase}}
+    \STATE $\{x_i, r_i\} \gets \text{Generate } G \text{ rollouts for each } x \in \mathcal{D}_{final}$
+
+    \STATE \textcolor{gray}{\textit{\# GRPO Training}}
+    \STATE Update policy model $\pi_\theta$ using GRPO on $\{x_i, r_i\}$
+    
+    \STATE \textcolor{gray}{\textit{\# History Update \& Statistics}}
+    \STATE Update $\mathcal{T}$ with new rewards and response entropies
+    \STATE $n_{total} \gets |\mathcal{D}_{final}|$
+    \STATE $n_{easy} \gets \text{count\_zero\_var}(\text{easy\_subset}); \quad n_{hard} \gets \text{count\_zero\_var}(\text{hard\_subset})$
+
+    \STATE \textcolor{gray}{\textit{\# Adaptive Exploration Adjustment}}
+    \FOR{type $\in \{easy, hard\}$}
+        \IF{$n_{\text{type}} / n_{\text{total}} > \alpha$}
+            \STATE $p_{e,\text{type}} \gets p_{e,\text{type}} - \Delta p$
+        \ELSE
+            \STATE $p_{e,\text{type}} \gets p_{e,\text{type}} + \Delta p$
+        \ENDIF
+    \ENDFOR
+
+
+\end{algorithmic}
+\end{algorithm}
+
+\section{{Algorithm}}
+\label{appendix-sec:alg}
+
+The HIVE training procedure is illustrated in Algorithm~\ref{alg:hive-training}. 
+The process begins with \textbf{History-Informed Selection}, where the method iteratively samples raw prompts from the dataset $\mathcal{D}$. 
+For each sampled prompt, we retrieve its historical metadata, consisting of the consecutive zero-variance counts $z_i$ and the historical response entropy $H_i$. These metrics are combined into a selection probability $P_{select}$ using a weighted combination of reward decay and entropy normalization. We employ Bernoulli sampling to accumulate a candidate pool $\mathcal{D}_{cand}$ until its size reaches twice the target training batch size (i.e., $2 \cdot B_t$). This $2\times$ oversampling strategy is a prerequisite for the subsequent median-based truncation, ensuring the final batch size aligns with the target computational budget.
+
+Once the candidate pool is populated, the flow transitions to \textbf{Online-Verified Selection}, a deterministic gatekeeper grounded in the model's current state. For every candidate in $\mathcal{D}_{cand}$, we compute the prompt-side entropy $V(x)$ via a single efficient forward pass. To adaptively identify the current learning edge, we calculate the median entropy $\gamma = \text{median}(\{V(x)\})$ of the accumulated pool. A strict filter is then applied to retain only prompts where $V(x) \geq \gamma$. This step effectively discards the bottom 50\% of samples with low uncertainty, yielding a final high-utility batch $\mathcal{D}_{final}$.
+
+% With the filtered batch established, the method proceeds to the normal \textbf{Rollout and Policy Update} phase, which is identical to the GRPO algorithm. 
+% After training finishes, the resulting rewards and response entropies are immediately written back to the historical trace $\mathcal{T}$ to update the metadata for future iterations. 
+With the filtered batch established, the method proceeds to the normal \textbf{Rollout and Policy Update} phase, which is identical to the GRPO algorithm.
+After training finishes, the resulting rewards and response entropies are immediately written back to the historical trace $\mathcal{T}$ to update the metadata for future iterations.
+
+A complete list of every selector hyperparameter (including $\lambda$, $\alpha$, $\Delta p$, $\epsilon_p$, $p_{\min}/p_{\max}$, $k_{\mathrm{keep}}$, $k_{\mathrm{off}}$, the trace and unseen-prompt initialization, and the exact batch-sizing protocol that produces a $B_{\mathrm{t}}$-prompt GRPO update) is provided in Appendix~\ref{appendix-subsec:hive-hyperparams}.
+
+\section{Asset Licenses}
+% \paragraph{.}
+\label{sec:asset-licenses}
+We use publicly available models, datasets, and software frameworks. 
+Qwen2.5-Math, Qwen3, Llama3.2, DeepSeek-R1-Distill, DAPO+MATH, Open-R1, verl, and vLLM are used according to their original licenses and terms.  Table~\ref{tab:assets} summarizes the source and license information.
+
+\begin{table}[h]
+\centering
+\caption{Sources and licenses of publicly available assets used in this work.}
+\label{tab:assets}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+\textbf{Asset} & \textbf{Type} & \textbf{Source} & \textbf{License} \\
+\midrule
+Qwen2.5-Math        & Model     & huggingface.co/Qwen               & Apache 2.0 \\
+Qwen3               & Model     & huggingface.co/Qwen               & Apache 2.0 \\
+Llama-3.2           & Model     & huggingface.co/meta-llama         & Llama 3.2 Community \\
+DeepSeek-R1-Distill & Model     & huggingface.co/deepseek-ai        & MIT \\
+DAPO-Math-17k       & Dataset   & github.com/BytedTsinghua-SIA/DAPO & Apache 2.0 \\
+MATH                & Dataset   & github.com/hendrycks/math         & MIT \\
+Open-R1             & Framework & github.com/huggingface/open-r1    & Apache 2.0 \\
+verl                & Framework & github.com/volcengine/verl        & Apache 2.0 \\
+vLLM                & Framework & github.com/vllm-project/vllm      & Apache 2.0 \\
+\bottomrule
+\end{tabular}}
+\end{table}
