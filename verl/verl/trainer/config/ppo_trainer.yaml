@@ -109,7 +109,7 @@ algorithm:
     # Power used for weight scaling in "pow" method
     weight_pow: 2.0
 
-  # HIVE selector state and Stage-1 defaults. Trainer integration remains disabled in Phase 2.
+  # HIVE selector and pre-rollout defaults.
   hive:
 
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -150,6 +150,15 @@ algorithm:
 
     # Upper adaptive exploration bound
     p_max: 0.95
+
+    # Fraction of highest-entropy Stage-2 prompts discarded
+    upper_trim_ratio: 0.25
+
+    # Fraction of Stage-2 input placed in the retained band before G-rounding
+    keep_ratio: 0.50
+
+    # Prompt-only actor forward micro-batch size
+    prompt_entropy_micro_batch_size: 1
 
 # config for the trainer
 trainer:

@@ -36,8 +36,15 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from signal_forge.hive import (
+    HivePreRolloutConfig,
+    HivePreRolloutStep,
+    HivePromptPreprocessor,
     HiveSelectorState,
-    attach_stable_prompt_ids,
+    Stage1Config,
+    Stage1StepSelector,
+    Stage2Config,
+    Stage2Selector,
+    compute_stage2_counts,
     validate_hive_prompt_preprocessing_scope,
 )
 from signal_forge.observability import (
@@ -539,6 +546,9 @@ class RayPPOTrainer:
 
         self._hive_configuration: dict[str, Any] | None = None
         self.hive_selector_state: HiveSelectorState | None = None
+        self._hive_prompt_preprocessor: HivePromptPreprocessor | None = None
+        self._hive_stage2_selector: Stage2Selector | None = None
+        self._hive_pre_rollout_config: HivePreRolloutConfig | None = None
         self._initialize_hive_selector_state()
 
     def _initialize_hive_selector_state(self) -> None:
@@ -547,6 +557,8 @@ class RayPPOTrainer:
             return
 
         validate_hive_prompt_preprocessing_scope(self.config)
+        if str(self.config.actor_rollout_ref.rollout.name) != "vllm":
+            raise ValueError("HIVE Phase 5C currently requires the vLLM rollout backend")
 
         group_size = int(_cfg_get(hive_config, "group_size", 8))
         rollout_group_size = int(self.config.actor_rollout_ref.rollout.n)
@@ -556,6 +568,47 @@ class RayPPOTrainer:
             raise ValueError(
                 f"HIVE group_size ({group_size}) must match actor_rollout_ref.rollout.n ({rollout_group_size})"
             )
+
+        lambda_weight = float(_cfg_get(hive_config, "lambda_weight", 1.0))
+        if lambda_weight != 1.0:
+            raise ValueError("faithful HIVE Phase 5C requires lambda_weight=1.0")
+        if self.config.trainer.total_training_steps is None:
+            raise ValueError(
+                "HIVE candidate accumulation consumes a variable number of raw batches; "
+                "trainer.total_training_steps must be explicit"
+            )
+        if _cfg_get(self.config.algorithm.get("filter_groups", None), "enable", False):
+            raise ValueError("HIVE Phase 5C must not combine with legacy filter_groups/replenish")
+
+        effective_batch_size = int(self.config.data.train_batch_size)
+        prompt_entropy_micro_batch_size = int(
+            _cfg_get(hive_config, "prompt_entropy_micro_batch_size", 1)
+        )
+        pre_rollout_config = HivePreRolloutConfig(
+            effective_batch_size=effective_batch_size,
+            prompt_entropy_micro_batch_size=prompt_entropy_micro_batch_size,
+        )
+        stage2_config = Stage2Config(
+            upper_trim_ratio=float(_cfg_get(hive_config, "upper_trim_ratio", 0.25)),
+            keep_ratio=float(_cfg_get(hive_config, "keep_ratio", 0.50)),
+            group_size=group_size,
+        )
+        raw_batch_size = int(self.config.data.get("gen_batch_size", effective_batch_size))
+        if compute_stage2_counts(raw_batch_size, stage2_config).post_round_keep_count == 0:
+            raise ValueError(
+                "HIVE b_raw/data.gen_batch_size is too small for Stage-2 G-multiple rounding "
+                f"(b_raw={raw_batch_size}, keep_ratio={stage2_config.keep_ratio}, G={group_size})"
+            )
+
+        prompt_length = int(self.config.actor_rollout_ref.rollout.prompt_length)
+        apply_chat_template_kwargs = self.config.data.get("apply_chat_template_kwargs", {}) or {}
+        self._hive_prompt_preprocessor = HivePromptPreprocessor(
+            self.tokenizer,
+            max_prompt_length=prompt_length,
+            apply_chat_template_kwargs=apply_chat_template_kwargs,
+        )
+        self._hive_stage2_selector = Stage2Selector(stage2_config)
+        self._hive_pre_rollout_config = pre_rollout_config
 
         self._hive_configuration = _config_to_plain_dict(hive_config)
         self.hive_selector_state = HiveSelectorState.create(
@@ -771,7 +824,10 @@ class RayPPOTrainer:
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
-        reward_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
+        reward_keys = (
+            {"data_source", "reward_model", "extra_info", "prompt_id", "uid"}
+            & batch.non_tensor_batch.keys()
+        )
 
         # pop those keys for generation
         batch_keys_to_pop = []
@@ -785,6 +841,73 @@ class RayPPOTrainer:
         gen_batch.non_tensor_batch.update(batch.non_tensor_batch)
 
         return gen_batch
+
+    def _create_hive_pre_rollout_step(self) -> HivePreRolloutStep:
+        if (
+            self.hive_selector_state is None
+            or self._hive_prompt_preprocessor is None
+            or self._hive_stage2_selector is None
+            or self._hive_pre_rollout_config is None
+        ):
+            raise RuntimeError("HIVE pre-rollout components are not initialized")
+        hive_config = self.config.algorithm.hive
+        selector = Stage1StepSelector(
+            self.hive_selector_state.snapshot(),
+            Stage1Config(
+                lambda_weight=float(_cfg_get(hive_config, "lambda_weight", 1.0)),
+                epsilon_p=float(_cfg_get(hive_config, "epsilon_p", 0.01)),
+            ),
+        )
+        return HivePreRolloutStep(
+            stage1_selector=selector,
+            prompt_preprocessor=self._hive_prompt_preprocessor,
+            stage2_selector=self._hive_stage2_selector,
+            config=self._hive_pre_rollout_config,
+        )
+
+    def _select_hive_pre_rollout_candidates(
+        self,
+        first_batch_dict: dict[str, Any],
+        raw_batch_iterator,
+    ):
+        step = self._create_hive_pre_rollout_step()
+        current_batch_dict = first_batch_dict
+        rollout_replicas_sleeping = False
+
+        while not step.is_complete:
+            raw_batch = DataProto.from_single_dict(current_batch_dict)
+            raw_batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+            prepared = step.prepare_round(raw_batch)
+            entropy_result = None
+            if prepared.entropy_rpc_batch is not None:
+                if not rollout_replicas_sleeping:
+                    self.checkpoint_manager.sleep_replicas()
+                    rollout_replicas_sleeping = True
+                entropy_result = self.actor_rollout_wg.compute_prompt_entropy(prepared.entropy_rpc_batch)
+            step.finish_round(prepared, entropy_result)
+            if step.is_complete:
+                break
+            try:
+                current_batch_dict = next(raw_batch_iterator)
+            except StopIteration as exc:
+                raise RuntimeError(
+                    "training dataloader exhausted during HIVE pre-rollout candidate accumulation: "
+                    f"actual={step.candidate_actual}, target={step.candidate_target}"
+                ) from exc
+
+        result = step.finalize()
+        if rollout_replicas_sleeping:
+            # Actor parameters do not change during selection; restore the already-synced vLLM weights.
+            self.checkpoint_manager.wake_up_replicas()
+        return result, step.stage1_selector
+
+    def _commit_hive_stage1_rng(self, selector: Stage1StepSelector | None) -> None:
+        if selector is None:
+            return
+        if self.hive_selector_state is None:
+            raise RuntimeError("cannot commit HIVE selector RNG without live selector state")
+        selector.commit_rng_state(self.hive_selector_state)
+        self.hive_selector_state.global_step = self.global_steps
 
     def _compute_reward_colocate(self, batch: DataProto) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
         """
@@ -1716,11 +1839,13 @@ class RayPPOTrainer:
         next_step_profile = False
 
         for epoch in range(current_epoch, self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            raw_batch_iterator = iter(self.train_dataloader)
+            for batch_dict in raw_batch_iterator:
                 if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
                     self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=False)
                 metrics = {}
                 timing_raw = {}
+                hive_stage1_selector = None
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1728,11 +1853,16 @@ class RayPPOTrainer:
                         if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
-                batch: DataProto = DataProto.from_single_dict(batch_dict)
-                batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
-
-                if self.hive_selector_state is not None:
-                    attach_stable_prompt_ids(batch.non_tensor_batch)
+                if self.hive_selector_state is None:
+                    batch: DataProto = DataProto.from_single_dict(batch_dict)
+                    batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
+                else:
+                    hive_result, hive_stage1_selector = self._select_hive_pre_rollout_candidates(
+                        batch_dict,
+                        raw_batch_iterator,
+                    )
+                    batch = hive_result.selected_batch
+                    metrics.update(hive_result.metrics)
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
@@ -2171,10 +2301,14 @@ class RayPPOTrainer:
                     if self.config.trainer.critic_warmup > self.global_steps:
                         # Still in critic warmup, only update weights to wake up rollout replicas.
                         self.checkpoint_manager.update_weights(self.global_steps)
+                        self._commit_hive_stage1_rng(hive_stage1_selector)
                     else:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             actor_output = self._update_actor(batch)
+
+                        # Publish only selector RNG progress after the optimizer operation.
+                        self._commit_hive_stage1_rng(hive_stage1_selector)
 
                         # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
                         esi_close_to_expiration = should_save_ckpt_esi(

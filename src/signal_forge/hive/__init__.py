@@ -15,6 +15,13 @@ from signal_forge.hive.prompt_entropy import (
     PromptEntropyRecord,
     full_categorical_entropy,
 )
+from signal_forge.hive.pre_rollout import (
+    HivePreRolloutConfig,
+    HivePreRolloutPreparedRound,
+    HivePreRolloutRoundResult,
+    HivePreRolloutStep,
+    HivePreRolloutStepResult,
+)
 from signal_forge.hive.stage1 import (
     ExplorationControllerConfig,
     ExplorationUpdate,
@@ -58,6 +65,11 @@ __all__ = [
     "HIVE_STATE_FILENAME",
     "HiveSelectorSnapshot",
     "HivePromptPreprocessor",
+    "HivePreRolloutConfig",
+    "HivePreRolloutPreparedRound",
+    "HivePreRolloutRoundResult",
+    "HivePreRolloutStep",
+    "HivePreRolloutStepResult",
     "HiveSelectorState",
     "PromptHistory",
     "PromptIdentityError",

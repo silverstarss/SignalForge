@@ -58,7 +58,7 @@ class FilterGroupsConfig(BaseConfig):
 
 @dataclass
 class HiveConfig(BaseConfig):
-    """HIVE selector state and Stage-1 configuration."""
+    """HIVE selector and pre-rollout configuration."""
 
     enable: bool = False
     group_size: int = 8
@@ -72,6 +72,9 @@ class HiveConfig(BaseConfig):
     delta_p: float = 0.01
     p_min: float = 0.05
     p_max: float = 0.95
+    upper_trim_ratio: float = 0.25
+    keep_ratio: float = 0.50
+    prompt_entropy_micro_batch_size: int = 1
 
 
 @dataclass

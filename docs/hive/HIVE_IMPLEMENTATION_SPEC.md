@@ -1008,6 +1008,29 @@ B_cand: 1.5 * B_t
 
 The final values belong in `EXPERIMENT_PROTOCOL.md`, not hard-coded into HIVE.
 
+For the faithful main reproduction, derive the initial candidate target exactly:
+
+```text
+B_cand_target = 3 * B_t / 2
+```
+
+Require `3 * B_t` to be divisible by `2`; do not round a fractional target or expose an
+independent candidate-target override.
+
+Apply Appendix B.3 using per-raw-batch Stage-2 pools:
+
+1. fetch one `b_raw` prompt batch;
+2. run Stage 1 and then Stage 2 on that batch;
+3. append the complete Stage-2 `kept` partition to `C_t` in deterministic raw-batch arrival order;
+4. repeat until `len(C_t) >= B_cand_target`.
+
+`B_cand_target` is a lower bound. If the final kept partition crosses the target, retain that entire partition and send
+every retained prompt to rollout. Do not truncate, rerank across raw batches, or create a boundary-dropped category.
+
+The resulting `candidate_actual` may exceed the target because Stage 2 rounds each kept partition to a multiple of `G`.
+Log the target, actual count, overshoot, actual ratio to `B_t`, and accumulation-round count. Do not compensate for
+this discretization in code.
+
 ---
 
 # 11. Rollout Phase
@@ -1388,14 +1411,17 @@ while the Appendix B.3 exact batch-sizing description can be read as applying St
 
 ### SignalForge resolution
 
-This remains an implementation-sensitive ambiguity.
+Use scheme B and follow Appendix B.3 exact batching:
 
-Codex must:
+```text
+for each b_raw batch:
+    Stage 1
+    Stage 2
+    append the complete Stage-2-kept partition
+until len(C_t) >= B_cand_target
+```
 
-1. inspect how the existing SignalForge dataloader/replenish loop works;
-2. propose both possible integrations;
-3. explain which more closely matches Appendix B.3 accounting;
-4. DO NOT code this part until reviewed.
+Do not pool Stage-1 survivors across raw batches before Stage 2.
 
 ---
 
