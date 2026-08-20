@@ -2,6 +2,11 @@
 
 from signal_forge.hive.actor_rpc import ActorEntropyCallDiagnostics, compute_prompt_entropy_rpc
 from signal_forge.hive.identity import PromptIdentityError, attach_stable_prompt_ids, extract_stable_prompt_ids
+from signal_forge.hive.prompt_preprocessing import (
+    CanonicalHivePrompt,
+    HivePromptPreprocessor,
+    validate_hive_prompt_preprocessing_scope,
+)
 from signal_forge.hive.prompt_entropy import (
     PromptEntropyBatchResult,
     PromptEntropyDiagnostics,
@@ -46,11 +51,13 @@ from signal_forge.hive.state import (
 
 __all__ = [
     "ActorEntropyCallDiagnostics",
+    "CanonicalHivePrompt",
     "ExplorationControllerConfig",
     "ExplorationUpdate",
     "EntropyScoredPrompt",
     "HIVE_STATE_FILENAME",
     "HiveSelectorSnapshot",
+    "HivePromptPreprocessor",
     "HiveSelectorState",
     "PromptHistory",
     "PromptIdentityError",
@@ -83,4 +90,5 @@ __all__ = [
     "extract_stable_prompt_ids",
     "full_categorical_entropy",
     "restore_selector_rng",
+    "validate_hive_prompt_preprocessing_scope",
 ]

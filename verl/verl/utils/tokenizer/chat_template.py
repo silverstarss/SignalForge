@@ -1,6 +1,7 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates
 import logging
 import os
+from dataclasses import dataclass
 
 from transformers import PreTrainedTokenizerBase, ProcessorMixin
 
@@ -8,6 +9,19 @@ from .tokenizer import normalize_token_ids
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+@dataclass(frozen=True)
+class CanonicalChatPrompt:
+    """Unpadded prompt tokens produced by the rollout chat-template path."""
+
+    input_ids: tuple[int, ...]
+    untruncated_token_count: int
+    left_truncated_token_count: int
+
+    @property
+    def valid_token_count(self) -> int:
+        return len(self.input_ids)
 
 
 def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[int]:
@@ -137,3 +151,47 @@ def apply_chat_template(
             if "mm_token_type_ids" in output:
                 output["mm_token_type_ids"] = output["mm_token_type_ids"][:, prefix_len:]
             return output
+
+
+def preprocess_chat_prompt(
+    tokenizer: PreTrainedTokenizerBase,
+    messages: list[dict],
+    *,
+    max_prompt_length: int | None,
+    tools=None,
+    apply_chat_template_kwargs: dict | None = None,
+) -> CanonicalChatPrompt:
+    """Apply the rollout template and its text-only left-truncation semantics."""
+    if max_prompt_length is not None and (
+        isinstance(max_prompt_length, bool)
+        or not isinstance(max_prompt_length, int)
+        or max_prompt_length <= 0
+    ):
+        raise ValueError("max_prompt_length must be a positive integer or None")
+
+    tokenized_prompt = apply_chat_template(
+        tokenizer,
+        messages,
+        tools=tools,
+        add_generation_prompt=True,
+        tokenize=True,
+        **dict(apply_chat_template_kwargs or {}),
+    )
+    prompt_ids = normalize_token_ids(tokenized_prompt)
+    untruncated_token_count = len(prompt_ids)
+    left_truncated_token_count = (
+        0 if max_prompt_length is None else max(0, untruncated_token_count - max_prompt_length)
+    )
+    if left_truncated_token_count:
+        logger.warning(
+            "Prompt of %d tokens exceeds rollout.prompt_length=%d; left-truncating.",
+            untruncated_token_count,
+            max_prompt_length,
+        )
+        prompt_ids = prompt_ids[-max_prompt_length:]
+
+    return CanonicalChatPrompt(
+        input_ids=tuple(prompt_ids),
+        untruncated_token_count=untruncated_token_count,
+        left_truncated_token_count=left_truncated_token_count,
+    )

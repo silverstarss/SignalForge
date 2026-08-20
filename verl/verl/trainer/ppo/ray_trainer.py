@@ -35,7 +35,11 @@ from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
-from signal_forge.hive import HiveSelectorState, attach_stable_prompt_ids
+from signal_forge.hive import (
+    HiveSelectorState,
+    attach_stable_prompt_ids,
+    validate_hive_prompt_preprocessing_scope,
+)
 from signal_forge.observability import (
     RolloutBudgetTracker,
     compute_group_metrics,
@@ -541,6 +545,8 @@ class RayPPOTrainer:
         hive_config = _cfg_get(self.config.algorithm, "hive", None)
         if not _cfg_get(hive_config, "enable", False):
             return
+
+        validate_hive_prompt_preprocessing_scope(self.config)
 
         group_size = int(_cfg_get(hive_config, "group_size", 8))
         rollout_group_size = int(self.config.actor_rollout_ref.rollout.n)

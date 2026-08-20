@@ -64,7 +64,7 @@ from verl.utils.tokenizer import (
     get_processor_token_id,
     normalize_token_ids,
 )
-from verl.utils.tokenizer.chat_template import apply_chat_template, initialize_system_prompt
+from verl.utils.tokenizer.chat_template import apply_chat_template, initialize_system_prompt, preprocess_chat_prompt
 from verl.utils.tokenizer.continuous_token_wiring import create_continuous_token_builder
 from verl.workers.config import (
     HFModelConfig,
@@ -409,18 +409,19 @@ class AgentLoopBase(ABC):
             )
             prompt_ids = normalize_token_ids(model_inputs.pop("input_ids"))
         else:
-            tokenized_prompt = await self.loop.run_in_executor(
+            canonical_prompt = await self.loop.run_in_executor(
                 None,
-                lambda: apply_chat_template(
+                lambda: preprocess_chat_prompt(
                     self.tokenizer,
                     messages,
                     tools=tools,
-                    add_generation_prompt=True,
-                    tokenize=True,
-                    **self.apply_chat_template_kwargs,
+                    max_prompt_length=(
+                        None if remove_system_prompt else self.rollout_config.prompt_length
+                    ),
+                    apply_chat_template_kwargs=self.apply_chat_template_kwargs,
                 ),
             )
-            prompt_ids = normalize_token_ids(tokenized_prompt)
+            prompt_ids = list(canonical_prompt.input_ids)
 
         if remove_system_prompt:
             prompt_ids = prompt_ids[len(self.system_prompt) :]
