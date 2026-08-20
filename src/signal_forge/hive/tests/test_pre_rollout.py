@@ -17,6 +17,7 @@ from signal_forge.hive.stage1 import Stage1Config, Stage1StepSelector
 from signal_forge.hive.stage2 import Stage2Config, Stage2Selector
 from signal_forge.hive.state import HiveSelectorState, PromptVisit
 from signal_forge.hive.tests.test_prompt_preprocessing import QWEN25_TEXT_CHAT_TEMPLATE, _run_rollout
+from signal_forge.hive.topup import HiveTopupDataExhaustedError
 from verl import DataProto
 from verl.trainer.ppo import ray_trainer
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
@@ -286,6 +287,63 @@ def test_trainer_accumulates_raw_batches_and_uses_one_sleep_and_existing_weight_
     assert trainer.hive_selector_state.global_step == 0
 
 
+def test_topup_candidate_acquisition_reuses_frozen_selector_and_keeps_overshoot():
+    trainer = object.__new__(RayPPOTrainer)
+    trainer.config = OmegaConf.create(
+        {
+            "algorithm": {"hive": {"lambda_weight": 1.0, "epsilon_p": 0.01}},
+            "actor_rollout_ref": {"rollout": {"temperature": 1.0}},
+        }
+    )
+    trainer.hive_selector_state = _state()
+    trainer._hive_prompt_preprocessor = HivePromptPreprocessor(_tokenizer(), max_prompt_length=128)
+    trainer._hive_stage2_selector = Stage2Selector()
+    trainer._hive_pre_rollout_config = HivePreRolloutConfig(effective_batch_size=8)
+    trainer.checkpoint_manager = _LifecycleCheckpointManager()
+    trainer.actor_rollout_wg = _EntropyActorWorkerGroup()
+    selector = Stage1StepSelector(trainer.hive_selector_state.snapshot())
+
+    result, returned_selector = trainer._select_hive_pre_rollout_candidates(
+        _batch_dict(_raw_batch(0, 32)),
+        iter(()),
+        stage1_selector=selector,
+        candidate_target=12,
+        rollout_replicas_sleeping=True,
+    )
+
+    assert returned_selector is selector
+    assert returned_selector.snapshot == selector.snapshot
+    assert len(result.selected_batch) == 16
+    assert result.candidate_target == 12
+    assert result.metrics["hive/candidate_overshoot"] == 4.0
+    assert trainer.checkpoint_manager.calls == ["wake"]
+
+
+def test_topup_candidate_acquisition_fails_on_dataloader_exhaustion():
+    trainer = object.__new__(RayPPOTrainer)
+    trainer.config = OmegaConf.create(
+        {
+            "algorithm": {"hive": {"lambda_weight": 1.0, "epsilon_p": 0.01}},
+            "actor_rollout_ref": {"rollout": {"temperature": 1.0}},
+        }
+    )
+    trainer.hive_selector_state = _state()
+    trainer._hive_prompt_preprocessor = HivePromptPreprocessor(_tokenizer(), max_prompt_length=128)
+    trainer._hive_stage2_selector = Stage2Selector()
+    trainer._hive_pre_rollout_config = HivePreRolloutConfig(effective_batch_size=8)
+    trainer.checkpoint_manager = _LifecycleCheckpointManager()
+    trainer.actor_rollout_wg = _EntropyActorWorkerGroup()
+
+    with pytest.raises(HiveTopupDataExhaustedError, match="topup=True"):
+        trainer._select_hive_pre_rollout_candidates(
+            _batch_dict(_raw_batch(0, 16)),
+            iter(()),
+            stage1_selector=Stage1StepSelector(trainer.hive_selector_state.snapshot()),
+            candidate_target=16,
+            rollout_replicas_sleeping=True,
+        )
+
+
 def test_hive_disabled_initialization_bypasses_all_hive_components(monkeypatch):
     trainer = object.__new__(RayPPOTrainer)
     trainer.config = OmegaConf.create({"algorithm": {"hive": {"enable": False}}})
@@ -294,6 +352,7 @@ def test_hive_disabled_initialization_bypasses_all_hive_components(monkeypatch):
     trainer._hive_prompt_preprocessor = None
     trainer._hive_stage2_selector = None
     trainer._hive_pre_rollout_config = None
+    trainer._hive_topup_config = None
     monkeypatch.setattr(
         ray_trainer,
         "validate_hive_prompt_preprocessing_scope",
@@ -304,3 +363,4 @@ def test_hive_disabled_initialization_bypasses_all_hive_components(monkeypatch):
 
     assert trainer.hive_selector_state is None
     assert trainer._hive_prompt_preprocessor is None
+    assert trainer._hive_topup_config is None

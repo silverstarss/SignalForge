@@ -27,7 +27,7 @@ from verl import DataProto
 
 
 HIVE_COMPUTE_COUNTERS_FILENAME = "hive_compute_counters.json"
-HIVE_COMPUTE_COUNTERS_SCHEMA_VERSION = 1
+HIVE_COMPUTE_COUNTERS_SCHEMA_VERSION = 2
 
 
 class HiveInsufficientEffectiveGroupsError(RuntimeError):
@@ -72,12 +72,22 @@ class HivePostRolloutDiagnostics:
 
 @dataclass
 class HiveComputeCounters:
+    global_step: int = 0
     generated_prompt_groups: int = 0
     generated_responses: int = 0
     generated_response_tokens: int = 0
     effective_prompt_groups: int = 0
     effective_responses: int = 0
     effective_response_tokens: int = 0
+
+    def __post_init__(self) -> None:
+        _nonnegative_integer("global_step", self.global_step)
+
+    def mark_step_complete(self, global_step: int) -> None:
+        step = _nonnegative_integer("global_step", global_step)
+        if step < self.global_step:
+            raise ValueError("HIVE compute counters global_step cannot move backwards")
+        self.global_step = step
 
     def update(self, diagnostics: HivePostRolloutDiagnostics) -> dict[str, float]:
         self.generated_prompt_groups += diagnostics.generated_prompt_groups
@@ -98,6 +108,7 @@ class HiveComputeCounters:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": HIVE_COMPUTE_COUNTERS_SCHEMA_VERSION,
+            "global_step": self.global_step,
             "generated_prompt_groups": self.generated_prompt_groups,
             "generated_responses": self.generated_responses,
             "generated_response_tokens": self.generated_response_tokens,
@@ -111,6 +122,7 @@ class HiveComputeCounters:
         if payload.get("schema_version") != HIVE_COMPUTE_COUNTERS_SCHEMA_VERSION:
             raise ValueError("unsupported HIVE compute counters schema_version")
         names = (
+            "global_step",
             "generated_prompt_groups",
             "generated_responses",
             "generated_response_tokens",
@@ -139,10 +151,21 @@ class HiveComputeCounters:
         return destination
 
     @classmethod
-    def load_checkpoint(cls, checkpoint_dir: str | os.PathLike[str]) -> "HiveComputeCounters":
+    def load_checkpoint(
+        cls,
+        checkpoint_dir: str | os.PathLike[str],
+        *,
+        expected_global_step: int | None = None,
+    ) -> "HiveComputeCounters":
         checkpoint_path = Path(checkpoint_dir) / HIVE_COMPUTE_COUNTERS_FILENAME
         with open(checkpoint_path, "r", encoding="utf-8") as handle:
-            return cls.from_dict(json.load(handle))
+            counters = cls.from_dict(json.load(handle))
+        if expected_global_step is not None and counters.global_step != expected_global_step:
+            raise ValueError(
+                f"HIVE compute counters global_step {counters.global_step} does not match "
+                f"trainer checkpoint step {expected_global_step}"
+            )
+        return counters
 
 
 class HiveStepPendingCommit:
@@ -196,6 +219,9 @@ class HiveStepPendingCommit:
 
 @dataclass(frozen=True)
 class HivePostRolloutResult:
+    effective_batch: DataProto | None
+    effective_reward_tensor: torch.Tensor | None
+    effective_reward_extra_infos: dict[str, Any]
     training_batch: DataProto | None
     training_reward_tensor: torch.Tensor | None
     training_reward_extra_infos: dict[str, Any]
@@ -324,6 +350,16 @@ class HivePostRolloutInterpreter:
         )
 
         can_train = effective_groups >= self.config.effective_batch_size
+        effective_batch = None
+        effective_reward_tensor = None
+        effective_reward_infos: dict[str, Any] = {}
+        if effective_indices:
+            effective_batch = batch.select_idxs(effective_indices)
+            effective_batch.meta_info = _filtered_meta_info(batch.meta_info, effective_indices, len(batch))
+            effective_reward_tensor = reward_tensor[effective_indices]
+            effective_reward_infos = _filter_aligned_mapping(
+                reward_extra_infos, effective_indices, len(batch)
+            )
         training_batch = None
         training_reward_tensor = None
         training_reward_infos: dict[str, Any] = {}
@@ -352,6 +388,9 @@ class HivePostRolloutInterpreter:
         )
         metrics = _metrics(diagnostics, exploration_update, self.config.effective_batch_size)
         return HivePostRolloutResult(
+            effective_batch=effective_batch,
+            effective_reward_tensor=effective_reward_tensor,
+            effective_reward_extra_infos=effective_reward_infos,
             training_batch=training_batch,
             training_reward_tensor=training_reward_tensor,
             training_reward_extra_infos=training_reward_infos,

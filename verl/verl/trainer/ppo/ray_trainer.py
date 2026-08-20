@@ -38,6 +38,10 @@ from tqdm import tqdm
 from signal_forge.hive import (
     ExplorationControllerConfig,
     HiveComputeCounters,
+    HiveAdaptiveTopupAccumulator,
+    HiveAdaptiveTopupConfig,
+    HiveTopupAcquisitionDiagnostics,
+    HiveTopupDataExhaustedError,
     HivePostRolloutConfig,
     HivePostRolloutInterpreter,
     HivePostRolloutResult,
@@ -556,6 +560,7 @@ class RayPPOTrainer:
         self._hive_stage2_selector: Stage2Selector | None = None
         self._hive_pre_rollout_config: HivePreRolloutConfig | None = None
         self._hive_compute_counters: HiveComputeCounters | None = None
+        self._hive_topup_config: HiveAdaptiveTopupConfig | None = None
         self._initialize_hive_selector_state()
 
     def _initialize_hive_selector_state(self) -> None:
@@ -586,6 +591,8 @@ class RayPPOTrainer:
             )
         if _cfg_get(self.config.algorithm.get("filter_groups", None), "enable", False):
             raise ValueError("HIVE must not combine with legacy filter_groups/replenish")
+        if self.config.algorithm.adv_estimator != AdvantageEstimator.GRPO:
+            raise ValueError("HIVE reproduction requires the GRPO advantage estimator")
 
         effective_batch_size = int(self.config.data.train_batch_size)
         prompt_entropy_micro_batch_size = int(
@@ -616,6 +623,21 @@ class RayPPOTrainer:
         )
         self._hive_stage2_selector = Stage2Selector(stage2_config)
         self._hive_pre_rollout_config = pre_rollout_config
+
+        self._hive_topup_config = HiveAdaptiveTopupConfig(
+            effective_batch_size=effective_batch_size,
+            group_size=group_size,
+            eta=float(_cfg_get(hive_config, "eta", 1.25)),
+            b_min=int(_cfg_get(hive_config, "b_min", 64)),
+            max_topup_rounds=int(_cfg_get(hive_config, "max_topup_rounds", 8)),
+            survival_epsilon=float(_cfg_get(hive_config, "survival_epsilon", 1e-6)),
+            controller=ExplorationControllerConfig(
+                alpha_total=float(_cfg_get(hive_config, "alpha_total", 0.25)),
+                delta_p=float(_cfg_get(hive_config, "delta_p", 0.01)),
+                p_min=float(_cfg_get(hive_config, "p_min", 0.05)),
+                p_max=float(_cfg_get(hive_config, "p_max", 0.95)),
+            ),
+        )
 
         self._hive_configuration = _config_to_plain_dict(hive_config)
         self.hive_selector_state = HiveSelectorState.create(
@@ -850,7 +872,13 @@ class RayPPOTrainer:
 
         return gen_batch
 
-    def _create_hive_pre_rollout_step(self) -> HivePreRolloutStep:
+    def _create_hive_pre_rollout_step(
+        self,
+        *,
+        stage1_selector: Stage1StepSelector | None = None,
+        candidate_target: int | None = None,
+        excluded_prompt_ids: frozenset[str] = frozenset(),
+    ) -> HivePreRolloutStep:
         if (
             self.hive_selector_state is None
             or self._hive_prompt_preprocessor is None
@@ -859,7 +887,7 @@ class RayPPOTrainer:
         ):
             raise RuntimeError("HIVE pre-rollout components are not initialized")
         hive_config = self.config.algorithm.hive
-        selector = Stage1StepSelector(
+        selector = stage1_selector or Stage1StepSelector(
             self.hive_selector_state.snapshot(),
             Stage1Config(
                 lambda_weight=float(_cfg_get(hive_config, "lambda_weight", 1.0)),
@@ -871,16 +899,26 @@ class RayPPOTrainer:
             prompt_preprocessor=self._hive_prompt_preprocessor,
             stage2_selector=self._hive_stage2_selector,
             config=self._hive_pre_rollout_config,
+            candidate_target=candidate_target,
+            excluded_prompt_ids=excluded_prompt_ids,
         )
 
     def _select_hive_pre_rollout_candidates(
         self,
         first_batch_dict: dict[str, Any],
         raw_batch_iterator,
+        *,
+        stage1_selector: Stage1StepSelector | None = None,
+        candidate_target: int | None = None,
+        excluded_prompt_ids: frozenset[str] = frozenset(),
+        rollout_replicas_sleeping: bool = False,
     ):
-        step = self._create_hive_pre_rollout_step()
+        step = self._create_hive_pre_rollout_step(
+            stage1_selector=stage1_selector,
+            candidate_target=candidate_target,
+            excluded_prompt_ids=excluded_prompt_ids,
+        )
         current_batch_dict = first_batch_dict
-        rollout_replicas_sleeping = False
 
         while not step.is_complete:
             raw_batch = DataProto.from_single_dict(current_batch_dict)
@@ -898,9 +936,11 @@ class RayPPOTrainer:
             try:
                 current_batch_dict = next(raw_batch_iterator)
             except StopIteration as exc:
-                raise RuntimeError(
+                error_type = HiveTopupDataExhaustedError if candidate_target is not None else RuntimeError
+                raise error_type(
                     "training dataloader exhausted during HIVE pre-rollout candidate accumulation: "
-                    f"actual={step.candidate_actual}, target={step.candidate_target}"
+                    f"actual={step.candidate_actual}, target={step.candidate_target}, "
+                    f"topup={candidate_target is not None}"
                 ) from exc
 
         result = step.finalize()
@@ -946,6 +986,51 @@ class RayPPOTrainer:
             step=self.global_steps,
         )
 
+    def _rollout_hive_topup_candidates(
+        self,
+        prompt_batch: DataProto,
+        *,
+        curr_step_profile: bool,
+    ) -> tuple[DataProto, torch.Tensor, dict[str, list], dict[str, Any]]:
+        if self.hive_selector_state is None:
+            raise RuntimeError("HIVE top-up rollout requires an enabled selector state")
+        if self.config.algorithm.adv_estimator != AdvantageEstimator.GRPO:
+            raise RuntimeError("HIVE top-up rollout only supports GRPO")
+
+        prompt_batch.non_tensor_batch["uid"] = np.array(
+            [str(uuid.uuid4()) for _ in range(len(prompt_batch.batch))], dtype=object
+        )
+        gen_batch = self._get_gen_batch(prompt_batch)
+        gen_batch.meta_info["global_steps"] = self.global_steps
+        rollout_n = self.config.actor_rollout_ref.rollout.n
+        generation_input = gen_batch.repeat(repeat_times=rollout_n, interleave=True)
+        if curr_step_profile:
+            self.llm_server_manager.start_profile()
+        generation_output = self.async_rollout_manager.generate_sequences(generation_input)
+        self.checkpoint_manager.sleep_replicas()
+        if curr_step_profile:
+            self.llm_server_manager.stop_profile()
+
+        rollout_timing = dict(generation_output.meta_info.get("timing", {}))
+        generation_output.meta_info.pop("timing", None)
+        batch = prompt_batch.repeat(repeat_times=rollout_n, interleave=True)
+        batch = batch.union(generation_output)
+        if "response_mask" not in batch.batch:
+            batch.batch["response_mask"] = compute_response_mask(batch)
+        batch.meta_info["global_token_num"] = torch.sum(
+            batch.batch["attention_mask"], dim=-1
+        ).tolist()
+        images_seqlens_all = []
+        for multi_modal_input in batch.non_tensor_batch.get("multi_modal_inputs", []):
+            if "image_grid_thw" in multi_modal_input:
+                images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
+        batch.meta_info["images_seqlens"] = images_seqlens_all
+        if self.use_rm and "rm_scores" not in batch.batch:
+            batch_reward = self._compute_reward_colocate(batch)
+            batch = batch.union(batch_reward)
+        reward_tensor, reward_extra_infos = extract_reward(batch)
+        return batch, reward_tensor, reward_extra_infos, rollout_timing
+
     def _commit_hive_step(
         self,
         selector: Stage1StepSelector | None,
@@ -955,7 +1040,13 @@ class RayPPOTrainer:
             return {}
         if selector is None or pending_commit is None or self.hive_selector_state is None:
             raise RuntimeError("HIVE step commit requires selector, pending observations, and live state")
-        return pending_commit.commit(self.hive_selector_state, selector)
+        metrics = pending_commit.commit(self.hive_selector_state, selector)
+        if self._hive_compute_counters is None:
+            raise RuntimeError("HIVE compute counters are not initialized")
+        self._hive_compute_counters.mark_step_complete(self.global_steps)
+        if self._hive_compute_counters.global_step != self.hive_selector_state.global_step:
+            raise RuntimeError("HIVE selector and compute counter steps diverged during commit")
+        return metrics
 
     def _compute_reward_colocate(self, batch: DataProto) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
         """
@@ -1465,10 +1556,17 @@ class RayPPOTrainer:
         torch.save(dataloader_state_dict, dataloader_local_path)
 
         if self.hive_selector_state is not None:
-            self.hive_selector_state.global_step = self.global_steps
-            self.hive_selector_state.save_checkpoint(local_global_step_folder)
+            if self.hive_selector_state.global_step != self.global_steps:
+                raise RuntimeError(
+                    "HIVE selector global_step does not match trainer checkpoint step"
+                )
             if self._hive_compute_counters is None:
                 raise RuntimeError("HIVE compute counters are not initialized")
+            if self._hive_compute_counters.global_step != self.global_steps:
+                raise RuntimeError(
+                    "HIVE compute counters global_step does not match trainer checkpoint step"
+                )
+            self.hive_selector_state.save_checkpoint(local_global_step_folder)
             self._hive_compute_counters.save_checkpoint(local_global_step_folder)
 
         # latest checkpointed iteration tracker (for atomic usage)
@@ -1565,10 +1663,12 @@ class RayPPOTrainer:
                 raise ValueError("HIVE configuration does not match the selector checkpoint")
             self.hive_selector_state = restored_hive_state
             try:
-                self._hive_compute_counters = HiveComputeCounters.load_checkpoint(global_step_folder)
+                self._hive_compute_counters = HiveComputeCounters.load_checkpoint(
+                    global_step_folder, expected_global_step=self.global_steps
+                )
             except FileNotFoundError:
                 print("Warning: HIVE compute counters are absent from this checkpoint; resetting them to zero")
-                self._hive_compute_counters = HiveComputeCounters()
+                self._hive_compute_counters = HiveComputeCounters(global_step=self.global_steps)
 
     def _start_profiling(self, do_profile: bool) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
@@ -2027,22 +2127,133 @@ class RayPPOTrainer:
                         reward_extra_infos_dict=reward_extra_infos_dict,
                     )
                     if hive_post_result is not None:
-                        hive_generated_reward_infos = reward_extra_infos_dict
-                        hive_generated_uids = np.asarray(
-                            batch.non_tensor_batch["uid"], dtype=object
-                        ).tolist()
-                        hive_generated_raw_correctness = np.asarray(
-                            reward_extra_infos_dict.get("raw_correctness", reward_extra_infos_dict.get("acc", [])),
-                            dtype=object,
-                        ).tolist()
-                        hive_generated_response_lengths = (
-                            batch.batch["response_mask"].sum(dim=-1).detach().cpu().float().numpy().tolist()
+                        if self._hive_topup_config is None or hive_stage1_selector is None:
+                            raise RuntimeError("HIVE adaptive top-up components are not initialized")
+                        accumulator = HiveAdaptiveTopupAccumulator(
+                            selector_snapshot=hive_stage1_selector.snapshot,
+                            config=self._hive_topup_config,
                         )
-                        metrics.update(hive_post_result.metrics)
+                        accumulator.observe_initial(hive_post_result)
                         if self._hive_compute_counters is None:
                             raise RuntimeError("HIVE compute counters are not initialized")
-                        metrics.update(self._hive_compute_counters.update(hive_post_result.diagnostics))
-                        diagnostics = hive_post_result.diagnostics
+                        compute_counter_metrics = self._hive_compute_counters.update(
+                            hive_post_result.diagnostics
+                        )
+                        generated_reward_parts = [reward_extra_infos_dict]
+                        generated_uid_values = np.asarray(
+                            batch.non_tensor_batch["uid"], dtype=object
+                        ).tolist()
+                        generated_raw_correctness = np.asarray(
+                            reward_extra_infos_dict.get(
+                                "raw_correctness", reward_extra_infos_dict.get("acc", [])
+                            ),
+                            dtype=object,
+                        ).tolist()
+                        generated_response_lengths = (
+                            batch.batch["response_mask"].sum(dim=-1).detach().cpu().float().numpy().tolist()
+                        )
+
+                        with marked_timer("topup", timing_raw, color="yellow"):
+                            while not accumulator.is_complete:
+                                estimate = accumulator.plan_next_topup()
+                                if estimate is None:
+                                    break
+                                try:
+                                    first_topup_batch = next(raw_batch_iterator)
+                                except StopIteration as exc:
+                                    raise HiveTopupDataExhaustedError(
+                                        "training dataloader exhausted before HIVE filled the effective batch: "
+                                        f"effective={accumulator.effective_group_count}, "
+                                        f"required={self._hive_topup_config.effective_batch_size}, "
+                                        f"topup_rounds={accumulator.topup_rounds}"
+                                    ) from exc
+                                topup_pre_result, topup_selector = self._select_hive_pre_rollout_candidates(
+                                    first_topup_batch,
+                                    raw_batch_iterator,
+                                    stage1_selector=hive_stage1_selector,
+                                    candidate_target=estimate.candidate_target,
+                                    excluded_prompt_ids=accumulator.prompt_ids,
+                                    rollout_replicas_sleeping=True,
+                                )
+                                if topup_selector is not hive_stage1_selector:
+                                    raise RuntimeError("HIVE top-up replaced the frozen step selector")
+                                topup_prompt_ids = tuple(
+                                    np.asarray(
+                                        topup_pre_result.selected_batch.non_tensor_batch["prompt_id"],
+                                        dtype=object,
+                                    ).tolist()
+                                )
+                                topup_batch, topup_reward_tensor, topup_reward_infos, topup_timing = (
+                                    self._rollout_hive_topup_candidates(
+                                        topup_pre_result.selected_batch,
+                                        curr_step_profile=curr_step_profile,
+                                    )
+                                )
+                                topup_post_result = self._interpret_hive_post_rollout(
+                                    selector=hive_stage1_selector,
+                                    candidate_prompt_ids=topup_prompt_ids,
+                                    batch=topup_batch,
+                                    reward_tensor=topup_reward_tensor,
+                                    reward_extra_infos_dict=topup_reward_infos,
+                                )
+                                if topup_post_result is None:
+                                    raise RuntimeError("HIVE top-up interpretation unexpectedly bypassed")
+                                accumulator.observe_topup(
+                                    topup_post_result,
+                                    HiveTopupAcquisitionDiagnostics(
+                                        candidate_target=estimate.candidate_target,
+                                        candidate_actual=len(topup_pre_result.selected_batch),
+                                        raw_prompts_seen=int(
+                                            topup_pre_result.metrics["hive/raw_prompts_seen"]
+                                        ),
+                                    ),
+                                )
+                                compute_counter_metrics = self._hive_compute_counters.update(
+                                    topup_post_result.diagnostics
+                                )
+                                generated_reward_parts.append(topup_reward_infos)
+                                generated_uid_values.extend(
+                                    np.asarray(
+                                        topup_batch.non_tensor_batch["uid"], dtype=object
+                                    ).tolist()
+                                )
+                                generated_raw_correctness.extend(
+                                    np.asarray(
+                                        topup_reward_infos.get(
+                                            "raw_correctness", topup_reward_infos.get("acc", [])
+                                        ),
+                                        dtype=object,
+                                    ).tolist()
+                                )
+                                generated_response_lengths.extend(
+                                    topup_batch.batch["response_mask"]
+                                    .sum(dim=-1)
+                                    .detach()
+                                    .cpu()
+                                    .float()
+                                    .numpy()
+                                    .tolist()
+                                )
+                                round_index = accumulator.topup_rounds
+                                metrics[f"hive/topup_round_{round_index}/raw_prompts_seen"] = float(
+                                    topup_pre_result.metrics["hive/raw_prompts_seen"]
+                                )
+                                metrics[f"hive/topup_round_{round_index}/stage2_kept"] = float(
+                                    topup_pre_result.metrics["hive/stage2_kept"]
+                                )
+                                for key, value in topup_timing.items():
+                                    timing_key = f"topup/{key}"
+                                    timing_raw[timing_key] = timing_raw.get(timing_key, 0.0) + float(value)
+
+                        hive_final_result = accumulator.finalize(step=self.global_steps)
+                        hive_post_result = hive_final_result
+                        hive_generated_reward_infos = _concat_reward_infos(generated_reward_parts)
+                        hive_generated_uids = generated_uid_values
+                        hive_generated_raw_correctness = generated_raw_correctness
+                        hive_generated_response_lengths = generated_response_lengths
+                        metrics.update(hive_final_result.metrics)
+                        metrics.update(compute_counter_metrics)
+                        diagnostics = hive_final_result.diagnostics
                         metrics.update(
                             self._budget_tracker.update(
                                 candidate_prompt_groups_step=diagnostics.generated_prompt_groups,
@@ -2050,14 +2261,14 @@ class RayPPOTrainer:
                                 responses_generated_step=diagnostics.generated_responses,
                                 prompt_tokens_generated_step=diagnostics.generated_prompt_tokens,
                                 response_tokens_generated_step=diagnostics.generated_response_tokens,
-                                optimizer_steps_step=int(
-                                    diagnostics.effective_prompt_groups >= int(self.config.data.train_batch_size)
-                                ),
+                                optimizer_steps_step=1,
                                 n_gpus=self.resource_pool_manager.get_n_gpus(),
                             )
                         )
-                        batch, reward_tensor, reward_extra_infos_dict = hive_post_result.require_training_batch()
-                        hive_pending_commit = hive_post_result.pending_commit
+                        batch = hive_final_result.training_batch
+                        reward_tensor = hive_final_result.training_reward_tensor
+                        reward_extra_infos_dict = hive_final_result.training_reward_extra_infos
+                        hive_pending_commit = hive_final_result.pending_commit
                         if self.config.trainer.balance_batch:
                             self._balance_batch(batch, metrics=metrics)
                         _refresh_training_batch_meta_info(batch)

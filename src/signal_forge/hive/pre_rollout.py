@@ -78,19 +78,26 @@ class HivePreRolloutStep:
         prompt_preprocessor: HivePromptPreprocessor,
         stage2_selector: Stage2Selector,
         config: HivePreRolloutConfig,
+        candidate_target: int | None = None,
+        excluded_prompt_ids: Sequence[str] = (),
     ) -> None:
         self.stage1_selector = stage1_selector
         self.prompt_preprocessor = prompt_preprocessor
         self.stage2_selector = stage2_selector
         self.config = config
+        self._candidate_target = (
+            config.candidate_target
+            if candidate_target is None
+            else _positive_integer("candidate_target", candidate_target)
+        )
         self._rounds: list[HivePreRolloutRoundResult] = []
         self._selected_batches: list[DataProto] = []
-        self._selected_prompt_ids: set[str] = set()
+        self._selected_prompt_ids: set[str] = set(excluded_prompt_ids)
         self._actual_count = 0
 
     @property
     def candidate_target(self) -> int:
-        return self.config.candidate_target
+        return self._candidate_target
 
     @property
     def candidate_actual(self) -> int:

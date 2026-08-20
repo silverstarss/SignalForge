@@ -133,6 +133,23 @@ def test_pending_history_and_probabilities_publish_only_on_explicit_commit():
     assert commit_metrics["hive/history_visits_committed"] == 4.0
 
 
+def test_trainer_commit_advances_selector_and_compute_counter_steps_together():
+    state, selector, result = _interpret(
+        [[1.0] * G, [0.1] * G, [1.0, 0.1] * 4],
+        effective_batch_size=1,
+    )
+    trainer = object.__new__(RayPPOTrainer)
+    trainer.hive_selector_state = state
+    trainer._hive_compute_counters = HiveComputeCounters()
+    trainer._hive_compute_counters.update(result.diagnostics)
+    trainer.global_steps = 1
+
+    trainer._commit_hive_step(selector, result.pending_commit)
+
+    assert trainer.hive_selector_state.global_step == 1
+    assert trainer._hive_compute_counters.global_step == 1
+
+
 def test_effective_overshoot_trains_first_bt_but_keeps_all_visits_and_accounting():
     _, _, result = _interpret(
         [[1.0, 0.1] * 4, [0.1, 0.0] * 4, [1.0, 0.0] * 4],
@@ -187,13 +204,23 @@ def test_completed_step_checkpoint_preserves_history_and_controller(tmp_path):
         step=4,
     )
     result.pending_commit.commit(state, selector)
+    counters = HiveComputeCounters()
+    counters.update(result.diagnostics)
+    counters.mark_step_complete(4)
     state.save_checkpoint(tmp_path)
+    counters.save_checkpoint(tmp_path)
 
     restored = HiveSelectorState.load_checkpoint(tmp_path)
+    restored_counters = HiveComputeCounters.load_checkpoint(
+        tmp_path, expected_global_step=restored.global_step
+    )
 
     assert restored.to_dict() == state.to_dict()
     assert restored.global_step == 4
     assert sum(len(history.visits) for history in restored.prompt_history.values()) == 3
+    assert restored_counters.global_step == restored.global_step == 4
+    with pytest.raises(ValueError, match="does not match"):
+        HiveComputeCounters.load_checkpoint(tmp_path, expected_global_step=5)
 
 
 def test_cumulative_compute_counters_include_discarded_groups():
