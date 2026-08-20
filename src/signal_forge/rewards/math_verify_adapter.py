@@ -63,12 +63,18 @@ def _verify(source: str, solution_str: str, ground_truth: str):
 def _result_payload(source: str, solution_str: str, ground_truth: str) -> dict[str, Any]:
     result = _verify(source=source, solution_str=solution_str, ground_truth=ground_truth)
     extraction = result.extraction
-    raw_correctness = float(result.is_correct)
+    extracted = bool(extraction.extraction_ok)
+    correct = bool(result.is_correct)
+    reward = 1.0 if correct else 0.1 if extracted else 0.0
+    raw_correctness = float(correct)
     return {
-        "score": raw_correctness,
+        "score": reward,
+        "reward": reward,
         "acc": raw_correctness,
         "raw_correctness": raw_correctness,
-        "extraction_ok": bool(extraction.extraction_ok),
+        "extracted": extracted,
+        "correct": correct,
+        "extraction_ok": extracted,
         "format_ok": bool(extraction.format_ok),
         "verification_status": extraction.extraction_status.value,
         "verification_error_type": result.error_type or "",
@@ -99,10 +105,15 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def _fallback_payload(*, source: str, reason: str, fallback_score: float, detail: str = "") -> dict[str, Any]:
     score = float(fallback_score)
+    if score != 0.0:
+        raise ValueError("frozen HIVE fallback score must be 0.0")
     return {
         "score": score,
-        "acc": score,
-        "raw_correctness": score,
+        "reward": score,
+        "acc": 0.0,
+        "raw_correctness": 0.0,
+        "extracted": False,
+        "correct": False,
         "extraction_ok": False,
         "format_ok": False,
         "verification_status": reason,
@@ -127,12 +138,14 @@ def compute_score(
     verify_timeout_fallback_score: float = 0.0,
     verifier_max_input_chars: int | None = None,
 ) -> dict[str, Any]:
-    """Return a binary Math-Verify reward and diagnostic fields for veRL.
+    """Return the frozen three-outcome Math-Verify reward and diagnostics for veRL.
 
     Parser and verifier exceptions intentionally propagate. A verifier/library
     failure is a training correctness bug, not an ordinary wrong answer unless
     the explicit process-timeout fallback path is enabled by config.
     """
+    if float(verify_timeout_fallback_score) != 0.0:
+        raise ValueError("frozen HIVE fallback score must be 0.0")
     started = time.perf_counter()
     source = _canonical_source(data_source, extra_info)
     solution_text = str(solution_str)

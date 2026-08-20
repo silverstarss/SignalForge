@@ -36,10 +36,16 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from signal_forge.hive import (
+    ExplorationControllerConfig,
+    HiveComputeCounters,
+    HivePostRolloutConfig,
+    HivePostRolloutInterpreter,
+    HivePostRolloutResult,
     HivePreRolloutConfig,
     HivePreRolloutStep,
     HivePromptPreprocessor,
     HiveSelectorState,
+    HiveStepPendingCommit,
     Stage1Config,
     Stage1StepSelector,
     Stage2Config,
@@ -549,6 +555,7 @@ class RayPPOTrainer:
         self._hive_prompt_preprocessor: HivePromptPreprocessor | None = None
         self._hive_stage2_selector: Stage2Selector | None = None
         self._hive_pre_rollout_config: HivePreRolloutConfig | None = None
+        self._hive_compute_counters: HiveComputeCounters | None = None
         self._initialize_hive_selector_state()
 
     def _initialize_hive_selector_state(self) -> None:
@@ -558,12 +565,12 @@ class RayPPOTrainer:
 
         validate_hive_prompt_preprocessing_scope(self.config)
         if str(self.config.actor_rollout_ref.rollout.name) != "vllm":
-            raise ValueError("HIVE Phase 5C currently requires the vLLM rollout backend")
+            raise ValueError("HIVE currently requires the vLLM rollout backend")
 
         group_size = int(_cfg_get(hive_config, "group_size", 8))
         rollout_group_size = int(self.config.actor_rollout_ref.rollout.n)
         if group_size != 8:
-            raise ValueError(f"faithful HIVE Phase 1 requires group_size=8; got {group_size}")
+            raise ValueError(f"faithful HIVE requires group_size=8; got {group_size}")
         if rollout_group_size != group_size:
             raise ValueError(
                 f"HIVE group_size ({group_size}) must match actor_rollout_ref.rollout.n ({rollout_group_size})"
@@ -571,14 +578,14 @@ class RayPPOTrainer:
 
         lambda_weight = float(_cfg_get(hive_config, "lambda_weight", 1.0))
         if lambda_weight != 1.0:
-            raise ValueError("faithful HIVE Phase 5C requires lambda_weight=1.0")
+            raise ValueError("faithful HIVE requires lambda_weight=1.0")
         if self.config.trainer.total_training_steps is None:
             raise ValueError(
                 "HIVE candidate accumulation consumes a variable number of raw batches; "
                 "trainer.total_training_steps must be explicit"
             )
         if _cfg_get(self.config.algorithm.get("filter_groups", None), "enable", False):
-            raise ValueError("HIVE Phase 5C must not combine with legacy filter_groups/replenish")
+            raise ValueError("HIVE must not combine with legacy filter_groups/replenish")
 
         effective_batch_size = int(self.config.data.train_batch_size)
         prompt_entropy_micro_batch_size = int(
@@ -619,6 +626,7 @@ class RayPPOTrainer:
             p_default=float(_cfg_get(hive_config, "p_default", 0.5)),
             configuration=self._hive_configuration,
         )
+        self._hive_compute_counters = HiveComputeCounters()
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -901,13 +909,53 @@ class RayPPOTrainer:
             self.checkpoint_manager.wake_up_replicas()
         return result, step.stage1_selector
 
-    def _commit_hive_stage1_rng(self, selector: Stage1StepSelector | None) -> None:
-        if selector is None:
-            return
+    def _interpret_hive_post_rollout(
+        self,
+        *,
+        selector: Stage1StepSelector | None,
+        candidate_prompt_ids: tuple[str, ...] | None,
+        batch: DataProto,
+        reward_tensor: torch.Tensor,
+        reward_extra_infos_dict: dict[str, list],
+    ) -> HivePostRolloutResult | None:
         if self.hive_selector_state is None:
-            raise RuntimeError("cannot commit HIVE selector RNG without live selector state")
-        selector.commit_rng_state(self.hive_selector_state)
-        self.hive_selector_state.global_step = self.global_steps
+            return None
+        if selector is None or candidate_prompt_ids is None:
+            raise RuntimeError("HIVE post-rollout interpretation requires the step selector and candidate order")
+
+        hive_config = self.config.algorithm.hive
+        controller_config = ExplorationControllerConfig(
+            alpha_total=float(_cfg_get(hive_config, "alpha_total", 0.25)),
+            delta_p=float(_cfg_get(hive_config, "delta_p", 0.01)),
+            p_min=float(_cfg_get(hive_config, "p_min", 0.05)),
+            p_max=float(_cfg_get(hive_config, "p_max", 0.95)),
+        )
+        interpreter = HivePostRolloutInterpreter(
+            selector_snapshot=selector.snapshot,
+            config=HivePostRolloutConfig(
+                effective_batch_size=int(self.config.data.train_batch_size),
+                group_size=int(_cfg_get(hive_config, "group_size", 8)),
+                controller=controller_config,
+            ),
+        )
+        return interpreter.interpret(
+            batch=batch,
+            reward_tensor=reward_tensor,
+            reward_extra_infos=reward_extra_infos_dict,
+            candidate_prompt_ids=candidate_prompt_ids,
+            step=self.global_steps,
+        )
+
+    def _commit_hive_step(
+        self,
+        selector: Stage1StepSelector | None,
+        pending_commit: HiveStepPendingCommit | None,
+    ) -> dict[str, float]:
+        if selector is None and pending_commit is None:
+            return {}
+        if selector is None or pending_commit is None or self.hive_selector_state is None:
+            raise RuntimeError("HIVE step commit requires selector, pending observations, and live state")
+        return pending_commit.commit(self.hive_selector_state, selector)
 
     def _compute_reward_colocate(self, batch: DataProto) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
         """
@@ -1419,6 +1467,9 @@ class RayPPOTrainer:
         if self.hive_selector_state is not None:
             self.hive_selector_state.global_step = self.global_steps
             self.hive_selector_state.save_checkpoint(local_global_step_folder)
+            if self._hive_compute_counters is None:
+                raise RuntimeError("HIVE compute counters are not initialized")
+            self._hive_compute_counters.save_checkpoint(local_global_step_folder)
 
         # latest checkpointed iteration tracker (for atomic usage)
         if (
@@ -1513,6 +1564,11 @@ class RayPPOTrainer:
             if restored_hive_state.configuration != self._hive_configuration:
                 raise ValueError("HIVE configuration does not match the selector checkpoint")
             self.hive_selector_state = restored_hive_state
+            try:
+                self._hive_compute_counters = HiveComputeCounters.load_checkpoint(global_step_folder)
+            except FileNotFoundError:
+                print("Warning: HIVE compute counters are absent from this checkpoint; resetting them to zero")
+                self._hive_compute_counters = HiveComputeCounters()
 
     def _start_profiling(self, do_profile: bool) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
@@ -1846,6 +1902,13 @@ class RayPPOTrainer:
                 metrics = {}
                 timing_raw = {}
                 hive_stage1_selector = None
+                hive_candidate_prompt_ids = None
+                hive_pending_commit = None
+                hive_post_result = None
+                hive_generated_reward_infos = None
+                hive_generated_uids = None
+                hive_generated_raw_correctness = None
+                hive_generated_response_lengths = None
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -1863,6 +1926,9 @@ class RayPPOTrainer:
                     )
                     batch = hive_result.selected_batch
                     metrics.update(hive_result.metrics)
+                    hive_candidate_prompt_ids = tuple(
+                        np.asarray(batch.non_tensor_batch["prompt_id"], dtype=object).tolist()
+                    )
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
@@ -1932,7 +1998,7 @@ class RayPPOTrainer:
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
                     # but might affect the loss calculation (due to the change of mini-batching).
-                    if self.config.trainer.balance_batch:
+                    if self.config.trainer.balance_batch and self.hive_selector_state is None:
                         self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
@@ -1952,6 +2018,49 @@ class RayPPOTrainer:
 
                         # extract reward_tensor and reward_extra_infos_dict for training
                         reward_tensor, reward_extra_infos_dict = extract_reward(batch)
+
+                    hive_post_result = self._interpret_hive_post_rollout(
+                        selector=hive_stage1_selector,
+                        candidate_prompt_ids=hive_candidate_prompt_ids,
+                        batch=batch,
+                        reward_tensor=reward_tensor,
+                        reward_extra_infos_dict=reward_extra_infos_dict,
+                    )
+                    if hive_post_result is not None:
+                        hive_generated_reward_infos = reward_extra_infos_dict
+                        hive_generated_uids = np.asarray(
+                            batch.non_tensor_batch["uid"], dtype=object
+                        ).tolist()
+                        hive_generated_raw_correctness = np.asarray(
+                            reward_extra_infos_dict.get("raw_correctness", reward_extra_infos_dict.get("acc", [])),
+                            dtype=object,
+                        ).tolist()
+                        hive_generated_response_lengths = (
+                            batch.batch["response_mask"].sum(dim=-1).detach().cpu().float().numpy().tolist()
+                        )
+                        metrics.update(hive_post_result.metrics)
+                        if self._hive_compute_counters is None:
+                            raise RuntimeError("HIVE compute counters are not initialized")
+                        metrics.update(self._hive_compute_counters.update(hive_post_result.diagnostics))
+                        diagnostics = hive_post_result.diagnostics
+                        metrics.update(
+                            self._budget_tracker.update(
+                                candidate_prompt_groups_step=diagnostics.generated_prompt_groups,
+                                accepted_prompt_groups_step=diagnostics.training_prompt_groups,
+                                responses_generated_step=diagnostics.generated_responses,
+                                prompt_tokens_generated_step=diagnostics.generated_prompt_tokens,
+                                response_tokens_generated_step=diagnostics.generated_response_tokens,
+                                optimizer_steps_step=int(
+                                    diagnostics.effective_prompt_groups >= int(self.config.data.train_batch_size)
+                                ),
+                                n_gpus=self.resource_pool_manager.get_n_gpus(),
+                            )
+                        )
+                        batch, reward_tensor, reward_extra_infos_dict = hive_post_result.require_training_batch()
+                        hive_pending_commit = hive_post_result.pending_commit
+                        if self.config.trainer.balance_batch:
+                            self._balance_batch(batch, metrics=metrics)
+                        _refresh_training_batch_meta_info(batch)
 
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
@@ -2030,22 +2139,36 @@ class RayPPOTrainer:
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                        candidate_batch_size = len(batch)
-                        candidate_uids = batch.non_tensor_batch.get("uid", [])
-                        candidate_uid_values = np.asarray(candidate_uids, dtype=object).tolist()
-                        candidate_group_count = len(set(uid for uid in candidate_uid_values if uid not in (None, "")))
-                        candidate_response_lengths = (
-                            batch.batch["response_mask"].sum(dim=-1).detach().cpu().float().numpy().tolist()
-                        )
-                        response_width = batch.batch["responses"].shape[-1]
-                        candidate_prompt_tokens = int(
-                            batch.batch["attention_mask"][:, :-response_width].sum().detach().cpu().item()
-                        )
-                        candidate_response_tokens = int(batch.batch["response_mask"].sum().detach().cpu().item())
-                        raw_correctness_values = reward_extra_infos_dict.get(
-                            "raw_correctness", reward_extra_infos_dict.get("acc", [])
-                        )
-                        candidate_reward_extra_infos_dict = reward_extra_infos_dict
+                        if hive_post_result is None:
+                            candidate_batch_size = len(batch)
+                            candidate_uids = batch.non_tensor_batch.get("uid", [])
+                            candidate_uid_values = np.asarray(candidate_uids, dtype=object).tolist()
+                            candidate_group_count = len(
+                                set(uid for uid in candidate_uid_values if uid not in (None, ""))
+                            )
+                            candidate_response_lengths = (
+                                batch.batch["response_mask"].sum(dim=-1).detach().cpu().float().numpy().tolist()
+                            )
+                            response_width = batch.batch["responses"].shape[-1]
+                            candidate_prompt_tokens = int(
+                                batch.batch["attention_mask"][:, :-response_width].sum().detach().cpu().item()
+                            )
+                            candidate_response_tokens = int(batch.batch["response_mask"].sum().detach().cpu().item())
+                            raw_correctness_values = reward_extra_infos_dict.get(
+                                "raw_correctness", reward_extra_infos_dict.get("acc", [])
+                            )
+                            candidate_reward_extra_infos_dict = reward_extra_infos_dict
+                        else:
+                            diagnostics = hive_post_result.diagnostics
+                            candidate_batch_size = diagnostics.generated_responses
+                            candidate_uids = hive_generated_uids
+                            candidate_uid_values = hive_generated_uids
+                            candidate_group_count = diagnostics.generated_prompt_groups
+                            candidate_response_lengths = hive_generated_response_lengths
+                            candidate_prompt_tokens = diagnostics.generated_prompt_tokens
+                            candidate_response_tokens = diagnostics.generated_response_tokens
+                            raw_correctness_values = hive_generated_raw_correctness
+                            candidate_reward_extra_infos_dict = hive_generated_reward_infos
                         filter_groups_config = self.config.algorithm.get("filter_groups", None)
                         dynamic_filter_enabled = _cfg_get(filter_groups_config, "enable", False)
 
@@ -2202,7 +2325,7 @@ class RayPPOTrainer:
                             candidate_response_tokens = generated_response_tokens
                             dynamic_filter_state = None
                         else:
-                            metrics.update(compute_reward_extra_metrics(reward_extra_infos_dict))
+                            metrics.update(compute_reward_extra_metrics(candidate_reward_extra_infos_dict))
                             metrics.update(
                                 compute_group_metrics(
                                     uids=candidate_uids,
@@ -2220,18 +2343,19 @@ class RayPPOTrainer:
                             metrics.update(filter_group_metrics)
                             accepted_group_count = _count_prompt_groups(batch)
 
-                        n_gpus_for_budget = self.resource_pool_manager.get_n_gpus()
-                        metrics.update(
-                            self._budget_tracker.update(
-                                candidate_prompt_groups_step=candidate_group_count,
-                                accepted_prompt_groups_step=accepted_group_count,
-                                responses_generated_step=candidate_batch_size,
-                                prompt_tokens_generated_step=candidate_prompt_tokens,
-                                response_tokens_generated_step=candidate_response_tokens,
-                                optimizer_steps_step=1,
-                                n_gpus=n_gpus_for_budget,
+                        if hive_post_result is None:
+                            n_gpus_for_budget = self.resource_pool_manager.get_n_gpus()
+                            metrics.update(
+                                self._budget_tracker.update(
+                                    candidate_prompt_groups_step=candidate_group_count,
+                                    accepted_prompt_groups_step=accepted_group_count,
+                                    responses_generated_step=candidate_batch_size,
+                                    prompt_tokens_generated_step=candidate_prompt_tokens,
+                                    response_tokens_generated_step=candidate_response_tokens,
+                                    optimizer_steps_step=1,
+                                    n_gpus=n_gpus_for_budget,
+                                )
                             )
-                        )
                         target_response_tokens = self.config.trainer.get("target_response_tokens", None)
                         if target_response_tokens is not None and float(target_response_tokens) > 0.0:
                             target_response_tokens = float(target_response_tokens)
@@ -2301,14 +2425,14 @@ class RayPPOTrainer:
                     if self.config.trainer.critic_warmup > self.global_steps:
                         # Still in critic warmup, only update weights to wake up rollout replicas.
                         self.checkpoint_manager.update_weights(self.global_steps)
-                        self._commit_hive_stage1_rng(hive_stage1_selector)
+                        metrics.update(self._commit_hive_step(hive_stage1_selector, hive_pending_commit))
                     else:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             actor_output = self._update_actor(batch)
 
-                        # Publish only selector RNG progress after the optimizer operation.
-                        self._commit_hive_stage1_rng(hive_stage1_selector)
+                        # Publish selector RNG, visits, and controller changes only after the optimizer operation.
+                        metrics.update(self._commit_hive_step(hive_stage1_selector, hive_pending_commit))
 
                         # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
                         esi_close_to_expiration = should_save_ckpt_esi(

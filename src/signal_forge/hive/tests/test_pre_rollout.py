@@ -282,9 +282,8 @@ def test_trainer_accumulates_raw_batches_and_uses_one_sleep_and_existing_weight_
     assert trainer.actor_rollout_wg.calls == 2
     assert trainer.checkpoint_manager.calls == ["sleep", "wake"]
     assert trainer.hive_selector_state.selector_rng_state == rng_before
-    trainer._commit_hive_stage1_rng(selector)
-    assert trainer.hive_selector_state.selector_rng_state != rng_before
-    assert trainer.hive_selector_state.global_step == 3
+    assert selector.snapshot.selector_rng_state == rng_before
+    assert trainer.hive_selector_state.global_step == 0
 
 
 def test_hive_disabled_initialization_bypasses_all_hive_components(monkeypatch):

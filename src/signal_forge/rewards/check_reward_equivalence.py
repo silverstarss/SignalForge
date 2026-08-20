@@ -201,11 +201,16 @@ def _direct_reward(record: dict[str, Any]) -> dict[str, Any]:
             response=_record_response(record), ground_truth=_record_ground_truth(record)
         )
     extraction = result.extraction
-    score = float(result.is_correct)
+    extracted = bool(extraction.extraction_ok)
+    correct = bool(result.is_correct)
+    score = 1.0 if correct else 0.1 if extracted else 0.0
     return {
         "score": score,
-        "raw_correctness": score,
-        "extraction_ok": bool(extraction.extraction_ok),
+        "reward": score,
+        "raw_correctness": float(correct),
+        "extracted": extracted,
+        "correct": correct,
+        "extraction_ok": extracted,
         "format_ok": bool(extraction.format_ok),
         "verification_status": extraction.extraction_status.value,
         "verification_error_type": result.error_type or "",
@@ -278,7 +283,10 @@ def _compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     mismatches: list[str] = []
     for key in [
         "score",
+        "reward",
         "raw_correctness",
+        "extracted",
+        "correct",
         "extraction_ok",
         "format_ok",
         "verification_status",

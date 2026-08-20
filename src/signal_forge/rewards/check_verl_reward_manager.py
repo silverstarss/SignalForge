@@ -50,7 +50,16 @@ def main() -> None:
     assert float(reward_tensor[0, 0]) == 0.0
     assert float(reward_tensor[0, 1]) == 0.0
     assert float(reward_tensor[0, 2]) == 1.0, reward_tensor
-    for key in ["score", "raw_correctness", "extraction_ok", "format_ok", "verification_status"]:
+    for key in [
+        "score",
+        "reward",
+        "raw_correctness",
+        "extracted",
+        "correct",
+        "extraction_ok",
+        "format_ok",
+        "verification_status",
+    ]:
         assert key in extra, f"reward extra info missing {key}"
         assert len(extra[key]) == 1, f"reward extra info {key} length mismatch"
 
