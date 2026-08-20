@@ -71,6 +71,20 @@ Target hardware:
 
 Paper-scale batch sizes must be reduced as necessary for single-GPU training, but A and B must use the same effective training configuration.
 
+For HIVE adaptive top-up, the paper default is `b_min = 64`, and the
+deployed paper configurations satisfy:
+
+```text
+B_cand = 3 * B_t / 2
+b_min <= B_cand
+```
+
+HIVE preflight must reject `b_min > B_cand`. Reduced single-GPU runs may
+use a smaller `b_min`. A reduced value supplied for a smoke test must be
+explicitly labeled smoke-only and does not freeze the formal protocol.
+Any formal reproduction value other than `64` must be recorded in
+`docs/hive/HIVE_DEVIATIONS.md`.
+
 ---
 
 ## 4. Dataset

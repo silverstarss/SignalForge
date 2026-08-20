@@ -57,6 +57,11 @@ class HiveAdaptiveTopupConfig:
             raise ValueError("survival_epsilon must be less than 1")
         if (3 * self.effective_batch_size) % 2:
             raise ValueError("faithful HIVE requires 3 * B_t to be divisible by 2")
+        if self.b_min > self.candidate_cap:
+            raise ValueError(
+                "faithful HIVE requires b_min <= B_cand: "
+                f"b_min={self.b_min}, B_cand={self.candidate_cap}"
+            )
 
     @property
     def candidate_cap(self) -> int:

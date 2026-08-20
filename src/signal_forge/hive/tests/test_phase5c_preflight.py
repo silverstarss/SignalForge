@@ -27,6 +27,8 @@ def _trainer(tokenizer, *, effective_batch_size=8, raw_batch_size=32):
                     "upper_trim_ratio": 0.25,
                     "keep_ratio": 0.5,
                     "prompt_entropy_micro_batch_size": 1,
+                    # Reduced unit-test scale; this is not a formal reproduction value.
+                    "b_min": 8,
                 }
             },
             "actor_rollout_ref": {
@@ -58,7 +60,7 @@ def test_phase5c_preflight_builds_approved_configuration(qwen25_tokenizer):
     assert trainer._hive_pre_rollout_config.candidate_target == 12
     assert trainer._hive_pre_rollout_config.prompt_entropy_micro_batch_size == 1
     assert trainer._hive_topup_config.eta == 1.25
-    assert trainer._hive_topup_config.b_min == 64
+    assert trainer._hive_topup_config.b_min == 8
     assert trainer._hive_topup_config.max_topup_rounds == 8
     assert trainer._hive_topup_config.candidate_cap == 12
 
@@ -86,6 +88,14 @@ def test_hive_preflight_rejects_non_grpo(qwen25_tokenizer):
     trainer.config.algorithm.adv_estimator = "reinforce_plus_plus"
 
     with pytest.raises(ValueError, match="requires the GRPO"):
+        trainer._initialize_hive_selector_state()
+
+
+def test_hive_preflight_rejects_b_min_above_candidate_cap(qwen25_tokenizer):
+    trainer = _trainer(qwen25_tokenizer)
+    trainer.config.algorithm.hive.b_min = 13
+
+    with pytest.raises(ValueError, match="b_min <= B_cand"):
         trainer._initialize_hive_selector_state()
 
 

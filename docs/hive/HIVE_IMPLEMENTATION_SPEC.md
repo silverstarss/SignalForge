@@ -1124,6 +1124,22 @@ b_min: 64
 eta: 1.25
 ```
 
+The deployed paper configurations use `b_min = 64` with
+`B_cand = 192` or `384`. The formula is defined within the valid
+configuration domain:
+
+```text
+B_cand = 3 * B_t / 2
+b_min <= B_cand
+```
+
+Preflight MUST reject `b_min > B_cand`; it must not interpret the outer
+`max` as permission for the adaptive target to exceed the configured
+candidate cap. Reduced single-GPU runs may explicitly use a smaller
+`b_min`. A reduced value used only for smoke testing MUST be labeled
+smoke-only. Any formal reproduction value other than `64` MUST be recorded
+in `docs/hive/HIVE_DEVIATIONS.md`.
+
 Interpretation:
 
 ```text

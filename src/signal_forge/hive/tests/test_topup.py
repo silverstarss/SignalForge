@@ -144,9 +144,9 @@ def test_formula_zero_remaining_and_invalid_counts():
 
 def test_b_min_cap_and_eta_binding():
     b_min = compute_adaptive_candidate_target(
-        _config(effective_batch_size=8, b_min=64), remaining_groups=1, rho_zv=0.0
+        _config(effective_batch_size=8, b_min=12), remaining_groups=1, rho_zv=0.0
     )
-    assert b_min.candidate_target == 64
+    assert b_min.candidate_target == 12
     assert b_min.b_min_binding is True
 
     capped = compute_adaptive_candidate_target(
@@ -162,6 +162,19 @@ def test_b_min_cap_and_eta_binding():
         _config(effective_batch_size=128, b_min=1, eta=1.5), remaining_groups=10, rho_zv=0.5
     )
     assert (low_eta.estimated_candidates, high_eta.estimated_candidates) == (20, 30)
+
+
+def test_b_min_configuration_domain_accepts_equal_and_less_than_candidate_cap():
+    equal = _config(effective_batch_size=8, b_min=12)
+    less = _config(effective_batch_size=8, b_min=11)
+
+    assert equal.b_min == equal.candidate_cap
+    assert less.b_min < less.candidate_cap
+
+
+def test_b_min_configuration_domain_rejects_above_candidate_cap():
+    with pytest.raises(ValueError, match="b_min <= B_cand"):
+        _config(effective_batch_size=8, b_min=13)
 
 
 def test_no_topup_when_initial_round_already_fills_bt():
@@ -209,15 +222,15 @@ def test_b_min_binding_is_exposed_in_step_metrics():
     snapshot = state.snapshot()
     accumulator = HiveAdaptiveTopupAccumulator(
         selector_snapshot=snapshot,
-        config=_config(b_min=8),
+        config=_config(b_min=6),
     )
     accumulator.observe_initial(
         _result(snapshot, start=0, group_rewards=[MIXED, ZERO], effective_batch_size=4)
     )
     plan = accumulator.plan_next_topup()
-    assert plan.candidate_target == 8
+    assert plan.candidate_target == 6
     assert plan.b_min_binding is True
-    rewards = [MIXED] * 3 + [ZERO] * 5
+    rewards = [MIXED] * 3 + [ZERO] * 3
     accumulator.observe_topup(
         _result(snapshot, start=100, group_rewards=rewards, effective_batch_size=4),
         _acquisition(plan, len(rewards)),
@@ -225,7 +238,7 @@ def test_b_min_binding_is_exposed_in_step_metrics():
 
     final = accumulator.finalize(step=1)
 
-    assert final.metrics["hive/topup_b_min"] == 8.0
+    assert final.metrics["hive/topup_b_min"] == 6.0
     assert final.metrics["hive/topup_b_min_binding"] == 1.0
 
 
