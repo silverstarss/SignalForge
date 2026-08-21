@@ -137,10 +137,15 @@ def compute_adaptive_candidate_target(
             candidate_cap_binding=False,
         )
     if survival <= config.survival_epsilon:
-        raise HiveTopupSurvivalError(
-            "HIVE adaptive top-up observed survival at or below the configured epsilon: "
-            f"rho_zv={rho}, survival={survival}, epsilon={config.survival_epsilon}, "
-            f"remaining_groups={remaining}"
+        return HiveAdaptiveTopupEstimate(
+            remaining_groups=remaining,
+            remaining_responses=remaining * config.group_size,
+            rho_zv=rho,
+            survival_rate=survival,
+            estimated_candidates=config.candidate_cap,
+            candidate_target=config.candidate_cap,
+            b_min_binding=config.b_min == config.candidate_cap,
+            candidate_cap_binding=True,
         )
 
     estimated = math.ceil(float(config.eta) * remaining / survival)

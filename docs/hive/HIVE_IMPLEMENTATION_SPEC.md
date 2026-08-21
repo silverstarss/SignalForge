@@ -1164,6 +1164,28 @@ The paper formula becomes unstable when:
 \hat\rho_{\mathrm{zv}}\rightarrow1.
 ]
 
+The paper does not explicitly define the exact boundary
+`rho_zv = 1`. The approved boundary resolution follows the left-limit
+of the published capped formula: as survival approaches zero, the
+inner estimate saturates at `B_cand` after applying the candidate cap.
+Therefore, when effective groups are still required and:
+
+```text
+survival_rate = 1 - rho_zv
+survival_rate <= survival_epsilon
+```
+
+the implementation MUST set:
+
+```text
+B_cand_adapt = B_cand
+candidate_cap_binding = true
+```
+
+and perform a normal complete top-up round. It MUST NOT divide by an
+artificial epsilon, add pseudocounts, retain zero-variance groups, or
+disable filtering.
+
 Implementation MUST guard against:
 
 * division by zero;
@@ -1176,12 +1198,16 @@ Suggested engineering safety:
 ```text
 max_selector_rounds
 min_survival_epsilon
-explicit failure with diagnostics
+explicit dataset-exhaustion failure with diagnostics
 ```
 
 These are safety guards, not algorithmic heuristics.
 
-If triggered during formal training, the run should be considered unhealthy and investigated rather than silently changing the algorithm.
+If repeated top-up rounds still produce no effective groups, termination
+is controlled by `max_topup_rounds` and/or dataloader exhaustion. If one
+of those guards triggers during formal training, the run should be
+considered unhealthy and investigated rather than silently changing the
+algorithm.
 
 ---
 

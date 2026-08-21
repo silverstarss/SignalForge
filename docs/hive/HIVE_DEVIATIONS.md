@@ -48,3 +48,19 @@ It does not override `docs/hive/HIVE_IMPLEMENTATION_SPEC.md` except where a revi
 - **Reason:** Appendix B.3 is the approved implementation source for the faithful main reproduction.
 - **Evaluation impact:** Log actual candidate count, overshoot, actual ratio to `B_t`, and accumulation rounds; do
   not compensate for discrete `G`-multiple overshoot.
+
+## HIVE-004: Zero-survival adaptive top-up boundary
+
+- **Status:** Approved on 2026-08-21.
+- **Specification references:** Sections 13, 13.1, and 15.
+- **Ambiguity:** The paper adaptive top-up equation is undefined at exact
+  `rho_zv = 1` because its survival denominator is zero.
+- **Resolution:** If effective groups are still required and
+  `1 - rho_zv <= survival_epsilon`, set `B_cand_adapt = B_cand` and
+  `candidate_cap_binding = true`, then perform a normal complete top-up
+  round. Do not divide by an artificial epsilon or add pseudocounts.
+- **Reason:** The left-limit of the published formula, after its explicit
+  candidate cap is applied, saturates at `B_cand`.
+- **Evaluation impact:** Zero-survival rounds remain fully subject to the
+  existing filtering semantics. Repeated zero-survival rounds terminate
+  through `max_topup_rounds` and/or dataloader exhaustion.

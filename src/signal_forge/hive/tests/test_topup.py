@@ -15,7 +15,6 @@ from signal_forge.hive.topup import (
     HiveAdaptiveTopupConfig,
     HiveTopupAcquisitionDiagnostics,
     HiveTopupRoundLimitError,
-    HiveTopupSurvivalError,
     compute_adaptive_candidate_target,
     compute_adaptive_candidate_target_from_responses,
 )
@@ -120,14 +119,45 @@ def test_response_and_group_formula_are_exactly_equivalent():
         )
 
 
-def test_formula_zero_survival_guards_and_bounds():
+def test_formula_zero_survival_saturates_at_candidate_cap():
     config = _config(effective_batch_size=8, b_min=1)
-    assert compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=0.0).estimated_candidates == 3
-    close = compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=0.999)
-    assert close.candidate_target == config.candidate_cap
-    assert close.candidate_cap_binding is True
-    with pytest.raises(HiveTopupSurvivalError):
-        compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=1.0)
+    result = compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=1.0)
+
+    assert result.estimated_candidates == config.candidate_cap
+    assert result.candidate_target == config.candidate_cap
+    assert result.candidate_cap_binding is True
+
+
+def test_formula_sub_epsilon_survival_saturates_at_candidate_cap():
+    config = _config(effective_batch_size=8, b_min=1, survival_epsilon=1e-3)
+    result = compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=0.9995)
+
+    assert result.survival_rate < config.survival_epsilon
+    assert result.candidate_target == config.candidate_cap
+    assert result.candidate_cap_binding is True
+
+
+def test_formula_just_above_epsilon_saturates_through_normal_formula():
+    config = _config(effective_batch_size=8, b_min=1, survival_epsilon=1e-3)
+    result = compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=0.998)
+
+    assert result.survival_rate > config.survival_epsilon
+    assert result.estimated_candidates == 1250
+    assert result.candidate_target == config.candidate_cap
+    assert result.candidate_cap_binding is True
+
+
+def test_formula_ordinary_survival_behavior_is_unchanged():
+    config = _config(effective_batch_size=8, b_min=1)
+    result = compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=0.0)
+
+    assert result.estimated_candidates == 3
+    assert result.candidate_target == 3
+    assert result.candidate_cap_binding is False
+
+
+def test_formula_rejects_invalid_rho():
+    config = _config(effective_batch_size=8, b_min=1)
     for invalid in (math.nan, math.inf, -0.1, 1.1):
         with pytest.raises(ValueError):
             compute_adaptive_candidate_target(config, remaining_groups=2, rho_zv=invalid)
@@ -288,6 +318,35 @@ def test_max_topup_rounds_fails_explicitly():
         _result(snapshot, start=100, group_rewards=rewards, effective_batch_size=4),
         _acquisition(plan, len(rewards)),
     )
+
+    with pytest.raises(HiveTopupRoundLimitError, match="max_topup_rounds"):
+        accumulator.plan_next_topup()
+
+
+def test_repeated_zero_survival_rounds_terminate_at_max_topup_rounds():
+    state = HiveSelectorState.create(group_size=G, seed=4)
+    snapshot = state.snapshot()
+    accumulator = HiveAdaptiveTopupAccumulator(
+        selector_snapshot=snapshot,
+        config=_config(max_topup_rounds=2),
+    )
+    accumulator.observe_initial(
+        _result(snapshot, start=0, group_rewards=[ZERO] * 6, effective_batch_size=4)
+    )
+
+    for round_index in range(2):
+        plan = accumulator.plan_next_topup()
+        assert plan.candidate_target == accumulator.config.candidate_cap
+        assert plan.candidate_cap_binding is True
+        accumulator.observe_topup(
+            _result(
+                snapshot,
+                start=100 * (round_index + 1),
+                group_rewards=[ZERO] * plan.candidate_target,
+                effective_batch_size=4,
+            ),
+            _acquisition(plan, plan.candidate_target),
+        )
 
     with pytest.raises(HiveTopupRoundLimitError, match="max_topup_rounds"):
         accumulator.plan_next_topup()
