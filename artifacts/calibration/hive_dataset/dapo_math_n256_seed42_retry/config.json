@@ -1,0 +1,20 @@
+{
+  "dataset": "dapo_math",
+  "model_path": "/root/autodl-tmp/SignalForge/artifacts/models/Qwen/Qwen2.5-3B-Instruct",
+  "sample_size": 256,
+  "seed": 42,
+  "temperature": 1.0,
+  "group_size": 8,
+  "max_response_length": 768,
+  "batch_size": 1,
+  "optimizer_updates": 0,
+  "grpo_training": false,
+  "math_split": "train",
+  "dapo_split": "train",
+  "math_data_source": "huggingface",
+  "dapo_dataset_id": "BytedTsinghua-SIA/DAPO-Math-17k",
+  "dapo_parquet": null,
+  "dapo_prompt_transform": "append_boxed_verifier_instruction",
+  "dapo_boxed_suffix": "For compatibility with the frozen verifier, also put the final answer within \\boxed{}.",
+  "dapo_ground_truth_transform": "wrap_boxed_and_validate_before_generation"
+}

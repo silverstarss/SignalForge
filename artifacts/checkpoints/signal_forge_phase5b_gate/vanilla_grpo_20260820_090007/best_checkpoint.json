@@ -1,0 +1,8 @@
+{
+  "checkpoint_path": null,
+  "checkpoint_saved_on_update": false,
+  "global_step": 0,
+  "metric_name": "val/pass_at_1",
+  "metric_value": 0.8658074298711145,
+  "updated_at_unix": 1787217005.8335767
+}

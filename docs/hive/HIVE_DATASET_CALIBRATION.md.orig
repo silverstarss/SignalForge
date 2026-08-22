@@ -1,0 +1,107 @@
+# HIVE Dataset Calibration
+
+This workflow compares model-relative difficulty for MATH, DAPO-Math, and
+their merged unique-prompt pool. It performs generation and verification only:
+there is no optimizer, GRPO objective, HIVE selection, or training update.
+
+## Frozen calibration settings
+
+- model: Qwen2.5-3B-Instruct
+- temperature: 1.0
+- responses per prompt: 8
+- subset size: 256 by default
+- subset seed: 42 by default
+- maximum response length: 768 tokens by default
+- verifier rewards: correct 1.0, extractable incorrect 0.1, extraction failure 0.0
+
+The subset is sampled from prompts sorted by stable, dataset-qualified ID.
+`--balanced-merged` selects exactly half MATH and half DAPO prompts, requires
+an even sample size, and preserves `math:<row_id>` and `dapo:<row_id>` IDs.
+
+## Canonical prompt
+
+Both sources use exactly one generation prompt:
+
+```text
+Solve the following math problem step by step.
+Put your final answer in \boxed{...}.
+
+{problem}
+```
+
+MATH retains its prior formatted prompt as `raw_prompt`. DAPO retains its
+original source messages, including the historical `Answer:` requirement, as
+`raw_prompt`, but generation consumes only `canonical_prompt`. DAPO source
+format is parsed against explicit audited prefix/suffix markers and unexpected
+formats fail before model generation.
+
+DAPO bare gold is wrapped as boxed LaTeX and validated before generation.
+Both `source_ground_truth` and normalized `ground_truth` are retained.
+
+## Length scan
+
+Set the local model directory:
+
+```bash
+export QWEN25_3B_LOCAL_DIR=/root/autodl-tmp/SignalForge/artifacts/models/Qwen/Qwen2.5-3B-Instruct
+```
+
+Run the approved balanced 32-prompt scan at 1024 tokens:
+
+```bash
+src/scripts_calibration/run_hive_dataset_calibration.sh \
+  --dataset dapo_math \
+  --balanced-merged \
+  --sample-size 32 \
+  --seed 42 \
+  --max-response-length 1024 \
+  --batch-size 4 \
+  --output-dir artifacts/calibration/hive_dataset/length_scan_balanced32_r1024
+```
+
+Run 1536 only if the 1024-token truncation ratio remains substantial:
+
+```bash
+src/scripts_calibration/run_hive_dataset_calibration.sh \
+  --dataset dapo_math \
+  --balanced-merged \
+  --sample-size 32 \
+  --seed 42 \
+  --max-response-length 1536 \
+  --batch-size 4 \
+  --output-dir artifacts/calibration/hive_dataset/length_scan_balanced32_r1536
+```
+
+Keep seed, source balance, prompt count, and batch size identical between scan
+runs. Different batch sizes do not guarantee identical sampled continuations.
+
+## General commands
+
+After response length is reviewed, each candidate can be run independently:
+
+```bash
+src/scripts_calibration/run_hive_dataset_calibration.sh --dataset math --output-dir OUTPUT
+src/scripts_calibration/run_hive_dataset_calibration.sh --dataset dapo --output-dir OUTPUT
+src/scripts_calibration/run_hive_dataset_calibration.sh --dataset dapo_math --output-dir OUTPUT
+```
+
+Use `--dapo-parquet PATH` for an already downloaded DAPO parquet file.
+`--prepare-only` writes the fixed selected subset without loading the model.
+Output directories must be absent or empty.
+
+## Outputs
+
+- `config.json`: exact generation, selection, and preprocessing settings;
+- `inventory.json`: source counts, unique counts, and removed duplicates;
+- `selected_prompts.jsonl`: stable ID, raw prompt, canonical prompt, and gold;
+- `prompt_results.jsonl`: responses, verifier details, rewards, group
+  classification, finish reasons, and token lengths;
+- `aggregate.json`: 0/8 through 8/8 histogram, easy/hard/other zero-variance
+  ratios, effective ratio, EOS ratio, truncation ratio, extraction failure
+  overall and conditioned on EOS/truncation, and p50/p90/p95/max response-token
+  lengths, both overall and per source.
+
+The current Hugging Face DAPO-Math-17k artifact may contain repeated rows.
+Calibration deduplicates by `extra_info.index`, rejects conflicting duplicates,
+and records removed-row counts. Dataset choice remains a human protocol
+decision; the tool never selects a dataset automatically.

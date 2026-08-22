@@ -1,0 +1,18 @@
+{
+  "dataset": "dapo_math",
+  "source_rows": {
+    "math": 7500,
+    "dapo": 1791700
+  },
+  "unique_prompts": {
+    "math": 7496,
+    "dapo": 17917
+  },
+  "duplicate_rows_removed": {
+    "math": 0,
+    "dapo": 1773783
+  },
+  "math_gold_parse_failures": 4,
+  "dapo_prompt_transform": "extract_problem_then_canonical_math_prompt_v1",
+  "dapo_ground_truth_transform": "wrap_boxed_and_validate_before_generation"
+}

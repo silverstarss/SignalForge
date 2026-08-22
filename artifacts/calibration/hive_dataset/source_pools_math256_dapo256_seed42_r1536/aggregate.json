@@ -1,0 +1,110 @@
+{
+  "prompt_count": 512,
+  "response_count": 4096,
+  "generated_response_tokens": 3018860,
+  "correct_count_histogram": {
+    "0/8": 208,
+    "1/8": 59,
+    "2/8": 40,
+    "3/8": 27,
+    "4/8": 26,
+    "5/8": 20,
+    "6/8": 26,
+    "7/8": 42,
+    "8/8": 64
+  },
+  "easy_zero_var_ratio": 0.125,
+  "hard_zero_var_ratio": 0.345703125,
+  "other_zero_var_ratio": 0.0,
+  "effective_mixed_ratio": 0.529296875,
+  "eos_finish_ratio": 0.98876953125,
+  "length_limit_finish_ratio": 0.01123046875,
+  "truncation_ratio": 0.01123046875,
+  "extraction_failure_ratio": 0.015869140625,
+  "extraction_failure_given_eos": 0.004691358024691358,
+  "extraction_failure_given_length_truncation": 1.0,
+  "response_token_length_statistics": {
+    "count": 4096,
+    "min": 143,
+    "max": 1536,
+    "mean": 737.0263671875,
+    "p50": 721.0,
+    "p90": 1112.5,
+    "p95": 1243.25,
+    "p99": 1536.0
+  },
+  "by_dataset_source": {
+    "dapo": {
+      "prompt_count": 256,
+      "response_count": 2048,
+      "generated_response_tokens": 1721046,
+      "correct_count_histogram": {
+        "0/8": 159,
+        "1/8": 35,
+        "2/8": 24,
+        "3/8": 12,
+        "4/8": 16,
+        "5/8": 6,
+        "6/8": 1,
+        "7/8": 0,
+        "8/8": 3
+      },
+      "easy_zero_var_ratio": 0.01171875,
+      "hard_zero_var_ratio": 0.5234375,
+      "other_zero_var_ratio": 0.0,
+      "effective_mixed_ratio": 0.46484375,
+      "eos_finish_ratio": 0.98583984375,
+      "length_limit_finish_ratio": 0.01416015625,
+      "truncation_ratio": 0.01416015625,
+      "extraction_failure_ratio": 0.0224609375,
+      "extraction_failure_given_eos": 0.008420009905894007,
+      "extraction_failure_given_length_truncation": 1.0,
+      "response_token_length_statistics": {
+        "count": 2048,
+        "min": 179,
+        "max": 1536,
+        "mean": 840.3544921875,
+        "p50": 817.0,
+        "p90": 1172.3,
+        "p95": 1300.9499999999996,
+        "p99": 1536.0
+      }
+    },
+    "math": {
+      "prompt_count": 256,
+      "response_count": 2048,
+      "generated_response_tokens": 1297814,
+      "correct_count_histogram": {
+        "0/8": 49,
+        "1/8": 24,
+        "2/8": 16,
+        "3/8": 15,
+        "4/8": 10,
+        "5/8": 14,
+        "6/8": 25,
+        "7/8": 42,
+        "8/8": 61
+      },
+      "easy_zero_var_ratio": 0.23828125,
+      "hard_zero_var_ratio": 0.16796875,
+      "other_zero_var_ratio": 0.0,
+      "effective_mixed_ratio": 0.59375,
+      "eos_finish_ratio": 0.99169921875,
+      "length_limit_finish_ratio": 0.00830078125,
+      "truncation_ratio": 0.00830078125,
+      "extraction_failure_ratio": 0.00927734375,
+      "extraction_failure_given_eos": 0.0009847365829640572,
+      "extraction_failure_given_length_truncation": 1.0,
+      "response_token_length_statistics": {
+        "count": 2048,
+        "min": 143,
+        "max": 1536,
+        "mean": 633.6982421875,
+        "p50": 586.0,
+        "p90": 1013.3,
+        "p95": 1142.2999999999997,
+        "p99": 1460.0699999999995
+      }
+    }
+  }
+}

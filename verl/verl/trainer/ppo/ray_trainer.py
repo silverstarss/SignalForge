@@ -176,6 +176,20 @@ def _cfg_get(config, key, default=None):
     return getattr(config, key, default)
 
 
+def _hive_step_start_metrics(selector: Stage1StepSelector) -> dict[str, float]:
+    snapshot = selector.snapshot
+    return {
+        "hive/selector_snapshot_global_step": float(snapshot.global_step),
+        "hive/history_prompts_at_step_start": float(len(snapshot.prompt_history)),
+        "hive/history_visits_at_step_start": float(
+            sum(len(visits) for visits in snapshot.prompt_history.values())
+        ),
+        "hive/p_easy_step_start": snapshot.p_easy,
+        "hive/p_hard_step_start": snapshot.p_hard,
+        "hive/p_default_step_start": snapshot.p_default,
+    }
+
+
 def _config_to_plain_dict(config) -> dict[str, Any]:
     if OmegaConf.is_config(config):
         plain = OmegaConf.to_container(config, resolve=True)
@@ -828,6 +842,54 @@ class RayPPOTrainer:
                 dump_path=rollout_data_dir,
                 max_records=max_records,
             )
+
+    def _log_hive_round_data(
+        self,
+        *,
+        batch: DataProto,
+        reward_tensor: torch.Tensor,
+        reward_extra_infos_dict: dict,
+        round_index: int,
+    ) -> None:
+        """Synchronously preserve HIVE reward evidence before a top-up guard can fail."""
+        if self.hive_selector_state is None or not bool(
+            self.config.trainer.get("hive_round_dump_enabled", False)
+        ):
+            return
+        rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+        if not rollout_data_dir:
+            return
+
+        count = len(batch)
+        extras = {
+            key: (value.tolist() if hasattr(value, "tolist") else value)
+            for key, value in reward_extra_infos_dict.items()
+        }
+        extras["hive_round_index"] = [int(round_index)] * count
+        extras["response_token_count"] = (
+            batch.batch["response_mask"].sum(dim=-1).detach().cpu().tolist()
+        )
+        for key in ("prompt_id", "data_source", "uid"):
+            if key in batch.non_tensor_batch:
+                value = batch.non_tensor_batch[key]
+                extras[key] = value.tolist() if hasattr(value, "tolist") else list(value)
+
+        dump_path = os.path.join(
+            rollout_data_dir,
+            "hive_round_diagnostics",
+            f"step_{self.global_steps}",
+            f"round_{round_index}",
+        )
+        self._write_generations(
+            inputs=self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True),
+            outputs=self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True),
+            gts=[item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch],
+            scores=reward_tensor.sum(-1).detach().cpu().tolist(),
+            reward_extra_infos_dict=extras,
+            dump_path=dump_path,
+            global_steps=self.global_steps,
+            max_records=self.config.trainer.get("rollout_dump_max_records", None),
+        )
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
@@ -2026,6 +2088,7 @@ class RayPPOTrainer:
                     )
                     batch = hive_result.selected_batch
                     metrics.update(hive_result.metrics)
+                    metrics.update(_hive_step_start_metrics(hive_stage1_selector))
                     hive_candidate_prompt_ids = tuple(
                         np.asarray(batch.non_tensor_batch["prompt_id"], dtype=object).tolist()
                     )
@@ -2119,6 +2182,13 @@ class RayPPOTrainer:
                         # extract reward_tensor and reward_extra_infos_dict for training
                         reward_tensor, reward_extra_infos_dict = extract_reward(batch)
 
+                    self._log_hive_round_data(
+                        batch=batch,
+                        reward_tensor=reward_tensor,
+                        reward_extra_infos_dict=reward_extra_infos_dict,
+                        round_index=0,
+                    )
+
                     hive_post_result = self._interpret_hive_post_rollout(
                         selector=hive_stage1_selector,
                         candidate_prompt_ids=hive_candidate_prompt_ids,
@@ -2133,7 +2203,14 @@ class RayPPOTrainer:
                             selector_snapshot=hive_stage1_selector.snapshot,
                             config=self._hive_topup_config,
                         )
-                        accumulator.observe_initial(hive_post_result)
+                        accumulator.observe_initial(
+                            hive_post_result,
+                            HiveTopupAcquisitionDiagnostics(
+                                candidate_target=int(hive_result.metrics["hive/candidate_target"]),
+                                candidate_actual=int(hive_result.metrics["hive/candidate_actual"]),
+                                raw_prompts_seen=int(hive_result.metrics["hive/raw_prompts_seen"]),
+                            ),
+                        )
                         if self._hive_compute_counters is None:
                             raise RuntimeError("HIVE compute counters are not initialized")
                         compute_counter_metrics = self._hive_compute_counters.update(
@@ -2165,16 +2242,25 @@ class RayPPOTrainer:
                                         "training dataloader exhausted before HIVE filled the effective batch: "
                                         f"effective={accumulator.effective_group_count}, "
                                         f"required={self._hive_topup_config.effective_batch_size}, "
-                                        f"topup_rounds={accumulator.topup_rounds}"
+                                        f"topup_rounds={accumulator.topup_rounds}",
+                                        diagnostics=accumulator.failure_diagnostics(),
                                     ) from exc
-                                topup_pre_result, topup_selector = self._select_hive_pre_rollout_candidates(
-                                    first_topup_batch,
-                                    raw_batch_iterator,
-                                    stage1_selector=hive_stage1_selector,
-                                    candidate_target=estimate.candidate_target,
-                                    excluded_prompt_ids=accumulator.prompt_ids,
-                                    rollout_replicas_sleeping=True,
-                                )
+                                try:
+                                    topup_pre_result, topup_selector = (
+                                        self._select_hive_pre_rollout_candidates(
+                                            first_topup_batch,
+                                            raw_batch_iterator,
+                                            stage1_selector=hive_stage1_selector,
+                                            candidate_target=estimate.candidate_target,
+                                            excluded_prompt_ids=accumulator.prompt_ids,
+                                            rollout_replicas_sleeping=True,
+                                        )
+                                    )
+                                except HiveTopupDataExhaustedError as exc:
+                                    raise HiveTopupDataExhaustedError(
+                                        str(exc),
+                                        diagnostics=accumulator.failure_diagnostics(),
+                                    ) from exc
                                 if topup_selector is not hive_stage1_selector:
                                     raise RuntimeError("HIVE top-up replaced the frozen step selector")
                                 topup_prompt_ids = tuple(
@@ -2188,6 +2274,12 @@ class RayPPOTrainer:
                                         topup_pre_result.selected_batch,
                                         curr_step_profile=curr_step_profile,
                                     )
+                                )
+                                self._log_hive_round_data(
+                                    batch=topup_batch,
+                                    reward_tensor=topup_reward_tensor,
+                                    reward_extra_infos_dict=topup_reward_infos,
+                                    round_index=accumulator.topup_rounds + 1,
                                 )
                                 topup_post_result = self._interpret_hive_post_rollout(
                                     selector=hive_stage1_selector,
@@ -2241,6 +2333,24 @@ class RayPPOTrainer:
                                 metrics[f"hive/topup_round_{round_index}/stage2_kept"] = float(
                                     topup_pre_result.metrics["hive/stage2_kept"]
                                 )
+                                entropy_latency = float(
+                                    topup_pre_result.metrics["hive/stage2_entropy_latency_seconds"]
+                                )
+                                metrics[
+                                    f"hive/topup_round_{round_index}/stage2_entropy_latency_seconds"
+                                ] = entropy_latency
+                                metrics["hive/stage2_entropy_latency_seconds"] = float(
+                                    metrics.get("hive/stage2_entropy_latency_seconds", 0.0)
+                                ) + entropy_latency
+                                for entropy_peak_key in (
+                                    "hive/stage2_entropy_peak_allocated_bytes",
+                                    "hive/stage2_entropy_peak_reserved_bytes",
+                                ):
+                                    round_peak = float(topup_pre_result.metrics[entropy_peak_key])
+                                    metrics[f"hive/topup_round_{round_index}/{entropy_peak_key[5:]}"] = round_peak
+                                    metrics[entropy_peak_key] = max(
+                                        float(metrics.get(entropy_peak_key, 0.0)), round_peak
+                                    )
                                 for key, value in topup_timing.items():
                                     timing_key = f"topup/{key}"
                                     timing_raw[timing_key] = timing_raw.get(timing_key, 0.0) + float(value)

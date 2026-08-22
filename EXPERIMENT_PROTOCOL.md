@@ -1,6 +1,6 @@
 # SignalForge v2 Experiment Protocol
 
-**Status:** DRAFT until dataset calibration and 3B memory smoke are complete.
+**Status:** DRAFT until the final 3B HIVE semantic smoke and remaining development gates pass.
 
 ## 1. Goal
 
@@ -60,7 +60,15 @@ random seed policy
 Target model:
 
 ```text
-Qwen2.5-3B
+Qwen2.5-3B-Instruct
+```
+
+Frozen rollout constants for the current reproduction:
+
+```text
+G = 8
+temperature = 1.0
+max_response_length = 1536
 ```
 
 Target hardware:
@@ -89,29 +97,53 @@ Any formal reproduction value other than `64` must be recorded in
 
 ## 4. Dataset
 
-**Not yet frozen.**
-
-Current candidates:
+Frozen dataset candidate for the current reproduction:
 
 ```text
-MATH
-DAPO + MATH
+75% MATH + 25% DAPO-Math
 ```
 
-Before selecting the final dataset, run Qwen2.5-3B calibration with the intended rollout settings and measure:
+This is a Qwen2.5-3B-Instruct model-relative dataset adaptation selected from
+the reviewed `G=8`, `temperature=1.0`, `max_response_length=1536`
+calibration. It is not presented as a paper-default dataset mixture.
+
+Sources and revisions:
 
 ```text
-0/8 ... 8/8 reward-group histogram
-zero-variance ratio
-easy / hard zero-variance ratio
-extraction-failure ratio
-response-length distribution
-generated-token distribution
+MATH: EleutherAI/hendrycks_math
+revision: 21a5633873b6a120296cce3e2df9d5550074f4a3
+split: train, all seven subject configurations
+
+DAPO: BytedTsinghua-SIA/DAPO-Math-17k
+revision: 65877096c24ffa7abc4e4fa5edb95cf3413a5674
+split: train
 ```
 
-Do not select the dataset using mixed-group rate alone.
+Construct the prompt-level pool at an exact `3:1` MATH:DAPO ratio after
+source-local validation and deduplication. DAPO duplicate rows are keyed by
+`extra_info.index`; conflicting duplicates are rejected. Preserve source
+identity rather than renumbering the mixture:
 
-Once chosen, record the exact dataset version, preprocessing, subset construction, and split here before formal training.
+```text
+math:<source_row_id>
+dapo:<extra_info.index>
+```
+
+Both sources use exactly one canonical prompt:
+
+```text
+Solve the following math problem step by step.
+Put your final answer in \boxed{...}.
+
+{problem}
+```
+
+DAPO's original `Answer: ...` requirement is removed before applying this
+template. Its bare gold answer is wrapped and validated against the same boxed
+LaTeX verifier used for MATH. The reviewed calibration raw results and source
+statistics live under
+`artifacts/calibration/hive_dataset/source_pools_math256_dapo256_seed42_r1536`.
+Do not select or revise the mixture using effective ratio alone.
 
 ---
 

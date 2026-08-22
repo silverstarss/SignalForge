@@ -267,7 +267,7 @@ REF=(
 
 REWARD=(
     reward.reward_manager.source=register
-    reward.reward_manager.name=naive
+    reward.reward_manager.name=${REWARD_MANAGER_NAME:-naive}
     reward.custom_reward_function.path="${SIGNAL_FORGE_SRC}/signal_forge/rewards/math_verify_adapter.py"
     reward.custom_reward_function.name=compute_score
     reward.reward_model.rollout.name="${ROLLOUT_NAME:-vllm}"
@@ -277,6 +277,13 @@ REWARD=(
     +reward.custom_reward_function.reward_kwargs.verify_timeout_fallback_score=${VERIFY_TIMEOUT_FALLBACK_SCORE:-0.0}
     +reward.custom_reward_function.reward_kwargs.verifier_max_input_chars=${VERIFIER_MAX_INPUT_CHARS:-200000}
 )
+
+if [[ "${REWARD_MANAGER_NAME:-naive}" == "rate_limited" ]]; then
+    REWARD+=(
+        +reward.max_concurrent=${REWARD_MAX_CONCURRENT:-1}
+        +reward.timeout=${REWARD_TIMEOUT_SECONDS:-30}
+    )
+fi
 
 FILTER_GROUPS=(
     +algorithm.filter_groups.enable=${FILTER_GROUPS_ENABLE:-False}
@@ -297,6 +304,7 @@ TRAINER=(
     +trainer.rollout_dump_interval=${ROLLOUT_DUMP_INTERVAL:-1}
     +trainer.rollout_dump_max_records=${ROLLOUT_DUMP_MAX_RECORDS:-40}
     +trainer.validation_dump_max_records=${VALIDATION_DUMP_MAX_RECORDS:-128}
+    +trainer.hive_round_dump_enabled=${HIVE_ROUND_DUMP_ENABLED:-False}
     trainer.log_val_generations=${LOG_VAL_GENERATIONS:-16}
     trainer.val_before_train=True
     trainer.save_freq=${SAVE_FREQ:-1}

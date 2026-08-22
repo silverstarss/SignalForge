@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from numbers import Real
 from typing import Any, Mapping
 
@@ -20,8 +21,48 @@ from signal_forge.hive.state import HiveSelectorSnapshot, ZeroVarianceType
 from verl import DataProto
 
 
+@dataclass(frozen=True)
+class HiveTopupRoundDiagnostics:
+    round_index: int
+    generated_prompt_groups: int
+    easy_zero_var_groups: int
+    hard_zero_var_groups: int
+    other_zero_var_groups: int
+    effective_groups: int
+    total_zero_var_ratio: float
+    candidate_target: int
+    candidate_actual: int
+    candidate_overshoot: int
+    cumulative_rho_zv: float
+
+
+@dataclass(frozen=True)
+class HiveTopupFailureDiagnostics:
+    required_effective_groups: int
+    effective_groups: int
+    topup_rounds: int
+    rounds: tuple[HiveTopupRoundDiagnostics, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 class HiveTopupError(RuntimeError):
     """Base class for explicit adaptive top-up failures."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        diagnostics: HiveTopupFailureDiagnostics | None = None,
+    ) -> None:
+        self.diagnostics = diagnostics
+        if diagnostics is not None:
+            message = (
+                f"{message}\nHIVE top-up diagnostic snapshot: "
+                f"{json.dumps(diagnostics.to_dict(), sort_keys=True)}"
+            )
+        super().__init__(message)
 
 
 class HiveTopupSurvivalError(HiveTopupError):
@@ -198,6 +239,7 @@ class HiveAdaptiveTopupAccumulator:
         self.selector_snapshot = selector_snapshot
         self.config = config
         self._rounds: list[HivePostRolloutResult] = []
+        self._initial_acquisition: HiveTopupAcquisitionDiagnostics | None = None
         self._topup_acquisitions: list[HiveTopupAcquisitionDiagnostics] = []
         self._topup_estimates: list[HiveAdaptiveTopupEstimate] = []
         self._pending_estimate: HiveAdaptiveTopupEstimate | None = None
@@ -236,10 +278,69 @@ class HiveAdaptiveTopupAccumulator:
             generated_groups=self.generated_group_count,
         )
 
-    def observe_initial(self, result: HivePostRolloutResult) -> None:
+    def observe_initial(
+        self,
+        result: HivePostRolloutResult,
+        acquisition: HiveTopupAcquisitionDiagnostics | None = None,
+    ) -> None:
         if self._rounds:
             raise RuntimeError("the initial rollout round has already been observed")
+        generated = result.diagnostics.generated_prompt_groups
+        if acquisition is None:
+            acquisition = HiveTopupAcquisitionDiagnostics(
+                candidate_target=generated,
+                candidate_actual=generated,
+                raw_prompts_seen=generated,
+            )
+        if acquisition.candidate_actual != generated:
+            raise ValueError("every initial candidate must receive one complete rollout group")
+        self._initial_acquisition = acquisition
         self._append_result(result)
+
+    def failure_diagnostics(self) -> HiveTopupFailureDiagnostics:
+        """Capture completed rollout rounds even when normal finalization is skipped."""
+        if not self._rounds or self._initial_acquisition is None:
+            return HiveTopupFailureDiagnostics(
+                required_effective_groups=self.config.effective_batch_size,
+                effective_groups=0,
+                topup_rounds=0,
+                rounds=(),
+            )
+        acquisitions = [self._initial_acquisition, *self._topup_acquisitions]
+        cumulative_generated = 0
+        cumulative_zero = 0
+        rounds: list[HiveTopupRoundDiagnostics] = []
+        for index, (result, acquisition) in enumerate(
+            zip(self._rounds, acquisitions, strict=True)
+        ):
+            item = result.diagnostics
+            cumulative_generated += item.generated_prompt_groups
+            cumulative_zero += item.total_zero_var_groups
+            rounds.append(
+                HiveTopupRoundDiagnostics(
+                    round_index=index,
+                    generated_prompt_groups=item.generated_prompt_groups,
+                    easy_zero_var_groups=item.easy_zero_var_groups,
+                    hard_zero_var_groups=item.hard_zero_var_groups,
+                    other_zero_var_groups=item.other_zero_var_groups,
+                    effective_groups=item.effective_prompt_groups,
+                    total_zero_var_ratio=(
+                        item.total_zero_var_groups / item.generated_prompt_groups
+                    ),
+                    candidate_target=acquisition.candidate_target,
+                    candidate_actual=acquisition.candidate_actual,
+                    candidate_overshoot=(
+                        acquisition.candidate_actual - acquisition.candidate_target
+                    ),
+                    cumulative_rho_zv=cumulative_zero / cumulative_generated,
+                )
+            )
+        return HiveTopupFailureDiagnostics(
+            required_effective_groups=self.config.effective_batch_size,
+            effective_groups=self.effective_group_count,
+            topup_rounds=self.topup_rounds,
+            rounds=tuple(rounds),
+        )
 
     def plan_next_topup(self) -> HiveAdaptiveTopupEstimate | None:
         if not self._rounds:
@@ -252,7 +353,8 @@ class HiveAdaptiveTopupAccumulator:
             raise HiveTopupRoundLimitError(
                 "HIVE adaptive top-up exceeded max_topup_rounds before filling B_t: "
                 f"rounds={self.topup_rounds}, effective={self.effective_group_count}, "
-                f"required={self.config.effective_batch_size}, rho_zv={self.rho_zv}"
+                f"required={self.config.effective_batch_size}, rho_zv={self.rho_zv}",
+                diagnostics=self.failure_diagnostics(),
             )
         estimate = compute_adaptive_candidate_target(
             self.config,
@@ -283,7 +385,8 @@ class HiveAdaptiveTopupAccumulator:
             raise RuntimeError("cannot finalize while a top-up acquisition is pending")
         if not self.is_complete:
             raise HiveTopupError(
-                "HIVE effective buffer is incomplete; acquire another adaptive top-up round first"
+                "HIVE effective buffer is incomplete; acquire another adaptive top-up round first",
+                diagnostics=self.failure_diagnostics(),
             )
         effective_batches = [result.effective_batch for result in self._rounds if result.effective_batch is not None]
         effective_rewards = [
@@ -338,6 +441,22 @@ class HiveAdaptiveTopupAccumulator:
             initial_effective=self._rounds[0].diagnostics.effective_prompt_groups,
             topup_results=self._rounds[1:],
         )
+        for item in self.failure_diagnostics().rounds:
+            prefix = f"hive/rollout_round_{item.round_index}"
+            metrics.update(
+                {
+                    f"{prefix}/generated_prompt_groups": float(item.generated_prompt_groups),
+                    f"{prefix}/easy_zero_var_groups": float(item.easy_zero_var_groups),
+                    f"{prefix}/hard_zero_var_groups": float(item.hard_zero_var_groups),
+                    f"{prefix}/other_zero_var_groups": float(item.other_zero_var_groups),
+                    f"{prefix}/effective_groups": float(item.effective_groups),
+                    f"{prefix}/total_zero_var_ratio": item.total_zero_var_ratio,
+                    f"{prefix}/candidate_target": float(item.candidate_target),
+                    f"{prefix}/candidate_actual": float(item.candidate_actual),
+                    f"{prefix}/candidate_overshoot": float(item.candidate_overshoot),
+                    f"{prefix}/cumulative_rho_zv": item.cumulative_rho_zv,
+                }
+            )
         return HiveAdaptiveTopupResult(
             training_batch=training_batch,
             training_reward_tensor=training_reward_tensor,

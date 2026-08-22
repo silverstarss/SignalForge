@@ -1,0 +1,92 @@
+{
+  "prompt_count": 256,
+  "response_count": 2048,
+  "correct_count_histogram": {
+    "0/8": 159,
+    "1/8": 24,
+    "2/8": 18,
+    "3/8": 3,
+    "4/8": 9,
+    "5/8": 10,
+    "6/8": 6,
+    "7/8": 11,
+    "8/8": 16
+  },
+  "easy_zero_var_ratio": 0.0625,
+  "hard_zero_var_ratio": 0.015625,
+  "other_zero_var_ratio": 0.1484375,
+  "effective_mixed_ratio": 0.7734375,
+  "extraction_failure_ratio": 0.5234375,
+  "response_token_length_statistics": {
+    "count": 2048,
+    "min": 140,
+    "max": 768,
+    "mean": 634.55322265625,
+    "p50": 694.5,
+    "p90": 768.0,
+    "p95": 768.0,
+    "p99": 768.0
+  },
+  "by_dataset_source": {
+    "dapo": {
+      "prompt_count": 174,
+      "response_count": 1392,
+      "correct_count_histogram": {
+        "0/8": 134,
+        "1/8": 20,
+        "2/8": 12,
+        "3/8": 2,
+        "4/8": 4,
+        "5/8": 1,
+        "6/8": 0,
+        "7/8": 1,
+        "8/8": 0
+      },
+      "easy_zero_var_ratio": 0.0,
+      "hard_zero_var_ratio": 0.011494252873563218,
+      "other_zero_var_ratio": 0.1781609195402299,
+      "effective_mixed_ratio": 0.8103448275862069,
+      "extraction_failure_ratio": 0.6221264367816092,
+      "response_token_length_statistics": {
+        "count": 1392,
+        "min": 154,
+        "max": 768,
+        "mean": 656.739224137931,
+        "p50": 716.0,
+        "p90": 768.0,
+        "p95": 768.0,
+        "p99": 768.0
+      }
+    },
+    "math": {
+      "prompt_count": 82,
+      "response_count": 656,
+      "correct_count_histogram": {
+        "0/8": 25,
+        "1/8": 4,
+        "2/8": 6,
+        "3/8": 1,
+        "4/8": 5,
+        "5/8": 9,
+        "6/8": 6,
+        "7/8": 10,
+        "8/8": 16
+      },
+      "easy_zero_var_ratio": 0.1951219512195122,
+      "hard_zero_var_ratio": 0.024390243902439025,
+      "other_zero_var_ratio": 0.08536585365853659,
+      "effective_mixed_ratio": 0.6951219512195121,
+      "extraction_failure_ratio": 0.31402439024390244,
+      "response_token_length_statistics": {
+        "count": 656,
+        "min": 140,
+        "max": 768,
+        "mean": 587.4756097560976,
+        "p50": 633.0,
+        "p90": 768.0,
+        "p95": 768.0,
+        "p99": 768.0
+      }
+    }
+  }
+}

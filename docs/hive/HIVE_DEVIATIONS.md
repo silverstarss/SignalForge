@@ -64,3 +64,30 @@ It does not override `docs/hive/HIVE_IMPLEMENTATION_SPEC.md` except where a revi
 - **Evaluation impact:** Zero-survival rounds remain fully subject to the
   existing filtering semantics. Repeated zero-survival rounds terminate
   through `max_topup_rounds` and/or dataloader exhaustion.
+
+## HIVE-005: Qwen2.5-3B model-relative dataset mixture
+
+- **Status:** Approved on 2026-08-22 after the 256 MATH + 256 DAPO calibration.
+- **Specification references:** Sections 20, 21, and 22.
+- **Adaptation:** Use a prompt-level mixture of 75% MATH and 25% DAPO-Math for
+  the current Qwen2.5-3B-Instruct reproduction candidate. This ratio is a
+  model-relative dataset adaptation, not a claim that the paper prescribes a
+  universal 3:1 mixture.
+- **Sources:** `EleutherAI/hendrycks_math` train revision
+  `21a5633873b6a120296cce3e2df9d5550074f4a3` and
+  `BytedTsinghua-SIA/DAPO-Math-17k` train revision
+  `65877096c24ffa7abc4e4fa5edb95cf3413a5674`.
+- **Preprocessing:** Normalize both sources to the single canonical boxed-answer
+  prompt recorded in `EXPERIMENT_PROTOCOL.md`. Deduplicate DAPO by
+  `extra_info.index`, reject conflicting duplicates, and validate normalized
+  ground truth with the frozen LaTeX verifier.
+- **Identity:** Preserve dataset-qualified stable IDs in every mixture:
+  `math:<source_row_id>` and `dapo:<extra_info.index>`.
+- **Reason:** At `G=8`, temperature `1.0`, and calibration response limit
+  `1536`, MATH had a materially thicker 1/8--7/8 band and a smaller hard tail;
+  DAPO supplied harder examples but was dominated by 0/8 groups. The reviewed
+  3:1 projection retained DAPO diversity while reducing the hard tail and
+  generated-token cost relative to 1:1 and 3:2 candidates.
+- **Evaluation impact:** Report source composition, the complete correct-count
+  histogram, easy/hard/other/effective rates, truncation, extraction failures,
+  and generated tokens. Do not revise the mixture from effective ratio alone.

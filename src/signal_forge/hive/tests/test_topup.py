@@ -23,6 +23,8 @@ from verl import DataProto
 
 G = 8
 MIXED = [1.0, 0.1] * 4
+EASY = [1.0] * G
+HARD = [0.1] * G
 ZERO = [0.0] * G
 
 
@@ -301,26 +303,78 @@ def test_multiple_rounds_use_cumulative_rho_and_deterministic_arrival_order():
     assert len(final.pending_commit.visits) == accumulator.generated_group_count
     assert final.metrics["hive/topup_round_1/rho_zv"] == first_rho
     assert final.metrics["hive/topup_round_2/rho_zv"] != first_rho
+    assert final.metrics["hive/rollout_round_0/generated_prompt_groups"] == 2.0
+    assert final.metrics["hive/rollout_round_0/other_zero_var_groups"] == 1.0
+    assert final.metrics["hive/rollout_round_0/effective_groups"] == 1.0
+    assert final.metrics["hive/rollout_round_0/candidate_actual"] == 2.0
+    assert final.metrics["hive/rollout_round_1/cumulative_rho_zv"] != first_plan.rho_zv
+    assert "hive/rollout_round_2/candidate_overshoot" in final.metrics
     assert state.prompt_history == {}
 
 
-def test_max_topup_rounds_fails_explicitly():
+def test_max_topup_rounds_preserves_per_round_failure_diagnostics():
     state = HiveSelectorState.create(group_size=G, seed=4)
     snapshot = state.snapshot()
     accumulator = HiveAdaptiveTopupAccumulator(
         selector_snapshot=snapshot,
-        config=_config(max_topup_rounds=1),
+        config=_config(effective_batch_size=6, max_topup_rounds=1),
     )
-    accumulator.observe_initial(_result(snapshot, start=0, group_rewards=[MIXED, ZERO], effective_batch_size=4))
+    initial_rewards = [EASY, HARD, ZERO, MIXED]
+    accumulator.observe_initial(
+        _result(snapshot, start=0, group_rewards=initial_rewards, effective_batch_size=6),
+        HiveTopupAcquisitionDiagnostics(
+            candidate_target=3,
+            candidate_actual=4,
+            raw_prompts_seen=8,
+        ),
+    )
     plan = accumulator.plan_next_topup()
-    rewards = [MIXED] + [ZERO] * (plan.candidate_target - 1)
+    rewards = [EASY, HARD] + [ZERO] * (plan.candidate_target - 2)
     accumulator.observe_topup(
-        _result(snapshot, start=100, group_rewards=rewards, effective_batch_size=4),
+        _result(snapshot, start=100, group_rewards=rewards, effective_batch_size=6),
         _acquisition(plan, len(rewards)),
     )
 
-    with pytest.raises(HiveTopupRoundLimitError, match="max_topup_rounds"):
+    with pytest.raises(HiveTopupRoundLimitError, match="max_topup_rounds") as caught:
         accumulator.plan_next_topup()
+
+    diagnostics = caught.value.diagnostics
+    assert diagnostics is not None
+    assert diagnostics.required_effective_groups == 6
+    assert diagnostics.effective_groups == 1
+    assert diagnostics.topup_rounds == 1
+    assert len(diagnostics.rounds) == 2
+
+    initial, topup = diagnostics.rounds
+    assert (
+        initial.generated_prompt_groups,
+        initial.easy_zero_var_groups,
+        initial.hard_zero_var_groups,
+        initial.other_zero_var_groups,
+        initial.effective_groups,
+    ) == (4, 1, 1, 1, 1)
+    assert initial.total_zero_var_ratio == pytest.approx(0.75)
+    assert (initial.candidate_target, initial.candidate_actual, initial.candidate_overshoot) == (
+        3,
+        4,
+        1,
+    )
+    assert initial.cumulative_rho_zv == pytest.approx(0.75)
+
+    assert topup.generated_prompt_groups == plan.candidate_target
+    assert topup.easy_zero_var_groups == 1
+    assert topup.hard_zero_var_groups == 1
+    assert topup.other_zero_var_groups == plan.candidate_target - 2
+    assert topup.effective_groups == 0
+    assert topup.total_zero_var_ratio == 1.0
+    assert topup.candidate_target == plan.candidate_target
+    assert topup.candidate_actual == plan.candidate_target
+    assert topup.candidate_overshoot == 0
+    assert topup.cumulative_rho_zv == pytest.approx(
+        (3 + plan.candidate_target) / (4 + plan.candidate_target)
+    )
+    assert "HIVE top-up diagnostic snapshot" in str(caught.value)
+    assert '"easy_zero_var_groups": 1' in str(caught.value)
 
 
 def test_repeated_zero_survival_rounds_terminate_at_max_topup_rounds():
