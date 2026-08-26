@@ -537,12 +537,17 @@ def _aggregate_metrics(
         "hive/p_easy_after": update.p_easy_after,
         "hive/p_hard_before": update.p_hard_before,
         "hive/p_hard_after": update.p_hard_after,
+        "hive/p_easy": update.p_easy_after,
+        "hive/p_hard": update.p_hard_after,
         "hive/history_visits_committed": 0.0,
         "hive/required_prompt_groups": float(config.effective_batch_size),
         "hive/topup_rounds": float(len(acquisitions)),
         "hive/topup_triggered": float(bool(acquisitions)),
         "hive/topup_remaining_groups": float(latest.remaining_groups if latest else 0),
         "hive/topup_rho_zv": float(latest.rho_zv if latest else diagnostics.total_zero_var_groups / generated),
+        "hive/estimated_zero_var_ratio": float(
+            latest.rho_zv if latest else diagnostics.total_zero_var_groups / generated
+        ),
         "hive/topup_survival_rate": float(
             latest.survival_rate
             if latest

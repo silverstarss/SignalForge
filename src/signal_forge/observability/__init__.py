@@ -5,6 +5,7 @@ from signal_forge.observability.metrics import (
     compute_group_metrics,
     compute_length_metrics,
     compute_reward_extra_metrics,
+    compute_section18_timing_metrics,
     compute_validation_alias_metrics,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "compute_group_metrics",
     "compute_length_metrics",
     "compute_reward_extra_metrics",
+    "compute_section18_timing_metrics",
     "compute_validation_alias_metrics",
 ]

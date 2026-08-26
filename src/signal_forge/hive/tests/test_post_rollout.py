@@ -236,6 +236,12 @@ def test_cumulative_compute_counters_include_discarded_groups():
     assert metrics["compute/generated_response_tokens"] == 4 * G * 3
     assert metrics["compute/effective_prompt_groups"] == 2.0
     assert metrics["compute/effective_responses"] == 2 * G
+    assert metrics["compute/effective_prompt_group_ratio"] == 0.5
+    assert metrics["compute/effective_response_ratio"] == 0.5
+    assert metrics["compute/effective_training_token_ratio"] == 0.5
+    assert metrics["compute/effective_prompt_groups_per_1m_generated_response_tokens"] == pytest.approx(
+        2 * 1_000_000 / (4 * G * 3)
+    )
 
 
 def test_cumulative_compute_counters_checkpoint_round_trip(tmp_path):

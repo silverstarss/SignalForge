@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "row_count": 1902,
+  "benchmark_counts": {
+    "aime24": 30,
+    "amc23": 40,
+    "gaokao2023en": 385,
+    "math500": 500,
+    "minerva_math": 272,
+    "olympiadbench": 675
+  },
+  "qwen_eval_revision": "a45202bd16f1ec06f433442dc1152d0074773465",
+  "math500_revision": "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be",
+  "parquet_filename": "formal_validation.parquet",
+  "parquet_sha256": "cff36876612e3e55bb963e1f05a33b60c86cb7907d18befa90e38718566a4301",
+  "prompt_template": "Solve the following math problem step by step.\nPut your final answer in \\boxed{...}.\n\n{problem}",
+  "stable_id_format": "validation:<benchmark>:<benchmark_id>",
+  "multiple_answer_semantics": "source-declared top-level answers are an unordered set",
+  "prompt_token_lengths": {
+    "overall": {
+      "count": 1902,
+      "min": 58,
+      "mean": 140.42218717139852,
+      "p50": 116,
+      "p90": 229,
+      "p95": 286,
+      "p99": 433,
+      "max": 1303
+    },
+    "by_benchmark": {
+      "aime24": {
+        "count": 30,
+        "min": 97,
+        "mean": 157.06666666666666,
+        "p50": 136,
+        "p90": 201,
+        "p95": 247,
+        "p99": 443,
+        "max": 443
+      },
+      "amc23": {
+        "count": 40,
+        "min": 70,
+        "mean": 134.575,
+        "p50": 128,
+        "p90": 182,
+        "p95": 238,
+        "p99": 265,
+        "max": 265
+      },
+      "gaokao2023en": {
+        "count": 385,
+        "min": 61,
+        "mean": 119.37142857142857,
+        "p50": 108,
+        "p90": 174,
+        "p95": 200,
+        "p99": 322,
+        "max": 433
+      },
+      "math500": {
+        "count": 500,
+        "min": 58,
+        "mean": 120.94,
+        "p50": 100,
+        "p90": 191,
+        "p95": 251,
+        "p99": 392,
+        "max": 841
+      },
+      "minerva_math": {
+        "count": 272,
+        "min": 61,
+        "mean": 181.17279411764707,
+        "p50": 148,
+        "p90": 316,
+        "p95": 365,
+        "p99": 423,
+        "max": 442
+      },
+      "olympiadbench": {
+        "count": 675,
+        "min": 66,
+        "mean": 150.04592592592593,
+        "p50": 125,
+        "p90": 228,
+        "p95": 300,
+        "p99": 612,
+        "max": 1303
+      }
+    },
+    "longest_prompts": [
+      {
+        "prompt_token_count": 1303,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2626"
+      },
+      {
+        "prompt_token_count": 1292,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2625"
+      },
+      {
+        "prompt_token_count": 841,
+        "benchmark": "math500",
+        "benchmark_id": "test/prealgebra/1044.json"
+      },
+      {
+        "prompt_token_count": 753,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2701"
+      },
+      {
+        "prompt_token_count": 750,
+        "benchmark": "math500",
+        "benchmark_id": "test/counting_and_probability/282.json"
+      },
+      {
+        "prompt_token_count": 717,
+        "benchmark": "math500",
+        "benchmark_id": "test/counting_and_probability/181.json"
+      },
+      {
+        "prompt_token_count": 664,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2863"
+      },
+      {
+        "prompt_token_count": 659,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2862"
+      },
+      {
+        "prompt_token_count": 655,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2861"
+      },
+      {
+        "prompt_token_count": 612,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2702"
+      },
+      {
+        "prompt_token_count": 585,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2615"
+      },
+      {
+        "prompt_token_count": 574,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2614"
+      },
+      {
+        "prompt_token_count": 520,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2684"
+      },
+      {
+        "prompt_token_count": 510,
+        "benchmark": "math500",
+        "benchmark_id": "test/geometry/702.json"
+      },
+      {
+        "prompt_token_count": 498,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2687"
+      },
+      {
+        "prompt_token_count": 448,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2356"
+      },
+      {
+        "prompt_token_count": 443,
+        "benchmark": "aime24",
+        "benchmark_id": "88"
+      },
+      {
+        "prompt_token_count": 442,
+        "benchmark": "minerva_math",
+        "benchmark_id": "147"
+      },
+      {
+        "prompt_token_count": 436,
+        "benchmark": "minerva_math",
+        "benchmark_id": "112"
+      },
+      {
+        "prompt_token_count": 433,
+        "benchmark": "gaokao2023en",
+        "benchmark_id": "180"
+      },
+      {
+        "prompt_token_count": 430,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "3004"
+      },
+      {
+        "prompt_token_count": 423,
+        "benchmark": "minerva_math",
+        "benchmark_id": "162"
+      },
+      {
+        "prompt_token_count": 411,
+        "benchmark": "minerva_math",
+        "benchmark_id": "174"
+      },
+      {
+        "prompt_token_count": 409,
+        "benchmark": "minerva_math",
+        "benchmark_id": "105"
+      },
+      {
+        "prompt_token_count": 406,
+        "benchmark": "olympiadbench",
+        "benchmark_id": "2680"
+      }
+    ]
+  }
+}

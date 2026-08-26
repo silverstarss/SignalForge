@@ -11,7 +11,11 @@ from tensordict import TensorDict
 from tokenizers import Tokenizer, models, pre_tokenizers
 from transformers import PreTrainedTokenizerFast
 
-from signal_forge.hive.pre_rollout import HivePreRolloutConfig, HivePreRolloutStep
+from signal_forge.hive.pre_rollout import (
+    HivePreRolloutConfig,
+    HivePreRolloutStep,
+    aggregate_pre_rollout_selection_metrics,
+)
 from signal_forge.hive.prompt_preprocessing import HivePromptPreprocessor
 from signal_forge.hive.stage1 import Stage1Config, Stage1StepSelector
 from signal_forge.hive.stage2 import Stage2Config, Stage2Selector
@@ -196,6 +200,14 @@ def test_complete_stage2_partitions_accumulate_in_arrival_order_and_keep_oversho
     assert final.metrics["hive/candidate_overshoot"] == 4
     assert final.metrics["hive/candidate_actual_ratio_to_Bt"] == 2.0
     assert final.metrics["hive/candidate_accumulation_rounds"] == 2
+    assert final.metrics["hive/stage2_keep_ratio"] == 0.5
+    assert final.metrics["hive/prompt_entropy_mean"] == 15.5
+    assert final.metrics["hive/prompt_entropy_std"] == pytest.approx(np.std(np.arange(32)))
+    assert final.metrics["hive/prompt_entropy_min"] == 0.0
+    assert final.metrics["hive/prompt_entropy_max"] == 31.0
+    assert "hive/selected_entropy_mean" in final.metrics
+    assert "hive/rejected_entropy_mean" in final.metrics
+    assert final.metrics["hive/stage1_latency_seconds"] >= 0.0
     assert len(set(expected_ids)) == len(expected_ids)
 
 
@@ -233,8 +245,8 @@ class _LifecycleCheckpointManager:
     def sleep_replicas(self):
         self.calls.append("sleep")
 
-    def wake_up_replicas(self):
-        self.calls.append("wake")
+    def update_weights(self, global_steps=None):
+        self.calls.append(("update_weights", global_steps))
 
 
 class _EntropyActorWorkerGroup:
@@ -281,7 +293,7 @@ def test_trainer_accumulates_raw_batches_and_uses_one_sleep_and_existing_weight_
 
     assert len(result.selected_batch) == 16
     assert trainer.actor_rollout_wg.calls == 2
-    assert trainer.checkpoint_manager.calls == ["sleep", "wake"]
+    assert trainer.checkpoint_manager.calls == ["sleep", ("update_weights", 3)]
     assert trainer.hive_selector_state.selector_rng_state == rng_before
     assert selector.snapshot.selector_rng_state == rng_before
     assert trainer.hive_selector_state.global_step == 0
@@ -295,6 +307,7 @@ def test_topup_candidate_acquisition_reuses_frozen_selector_and_keeps_overshoot(
             "actor_rollout_ref": {"rollout": {"temperature": 1.0}},
         }
     )
+    trainer.global_steps = 3
     trainer.hive_selector_state = _state()
     trainer._hive_prompt_preprocessor = HivePromptPreprocessor(_tokenizer(), max_prompt_length=128)
     trainer._hive_stage2_selector = Stage2Selector()
@@ -316,7 +329,7 @@ def test_topup_candidate_acquisition_reuses_frozen_selector_and_keeps_overshoot(
     assert len(result.selected_batch) == 16
     assert result.candidate_target == 12
     assert result.metrics["hive/candidate_overshoot"] == 4.0
-    assert trainer.checkpoint_manager.calls == ["wake"]
+    assert trainer.checkpoint_manager.calls == [("update_weights", 3)]
 
 
 def test_topup_candidate_acquisition_fails_on_dataloader_exhaustion():
@@ -364,3 +377,22 @@ def test_hive_disabled_initialization_bypasses_all_hive_components(monkeypatch):
     assert trainer.hive_selector_state is None
     assert trainer._hive_prompt_preprocessor is None
     assert trainer._hive_topup_config is None
+
+
+def test_selection_metrics_aggregate_initial_and_topup_acquisitions():
+    initial = _step(effective_batch_size=4)
+    _finish(initial, _raw_batch(0, 16))
+    initial_result = initial.finalize()
+    topup = _step(effective_batch_size=4)
+    _finish(topup, _raw_batch(16, 16))
+    topup_result = topup.finalize()
+
+    metrics = aggregate_pre_rollout_selection_metrics((initial_result, topup_result))
+    assert metrics["hive/raw_prompts_seen"] == 32.0
+    assert metrics["hive/stage1_accepted"] == 32.0
+    assert metrics["hive/stage2_input"] == 32.0
+    assert metrics["hive/stage2_kept"] == 16.0
+    assert metrics["hive/prompt_entropy_mean"] == 15.5
+    assert metrics["hive/prompt_entropy_min"] == 0.0
+    assert metrics["hive/prompt_entropy_max"] == 31.0
+    assert metrics["hive/stage2_entropy_latency_seconds"] == 0.5

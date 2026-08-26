@@ -11,6 +11,16 @@ from math import sqrt
 from typing import Iterable
 
 
+FORMAL_VALIDATION_BENCHMARKS = (
+    "math500",
+    "aime24",
+    "amc23",
+    "minerva_math",
+    "gaokao2023en",
+    "olympiadbench",
+)
+
+
 def _as_list(values) -> list:
     if values is None:
         return []
@@ -210,6 +220,7 @@ def compute_validation_alias_metrics(data_sources: Iterable, reward_extra_infos:
     metrics["val/num_prompts"] = float(len(acc_values))
 
     per_source_indices: dict[str, list[int]] = defaultdict(list)
+    source_accuracy: dict[str, float] = {}
     for idx, source in enumerate(sources):
         per_source_indices[str(source)].append(idx)
 
@@ -220,7 +231,8 @@ def compute_validation_alias_metrics(data_sources: Iterable, reward_extra_infos:
         source_extraction = [extraction_ok[i] for i in indices if i < len(extraction_ok)]
         source_format = [format_ok[i] for i in indices if i < len(format_ok)]
         if source_acc:
-            metrics[f"val/{safe_source}/pass_at_1"] = _mean(source_acc)
+            source_accuracy[source] = _mean(source_acc)
+            metrics[f"val/{safe_source}/pass_at_1"] = source_accuracy[source]
         if source_raw:
             metrics[f"val/{safe_source}/boxed_pass_at_1"] = _mean(source_raw)
         if source_extraction:
@@ -229,4 +241,34 @@ def compute_validation_alias_metrics(data_sources: Iterable, reward_extra_infos:
             metrics[f"val/{safe_source}/format_ok_ratio"] = _mean(source_format)
         metrics[f"val/{safe_source}/num_prompts"] = float(len(indices))
 
+    if all(source in source_accuracy for source in FORMAL_VALIDATION_BENCHMARKS):
+        metrics["val/six_benchmark_mean_accuracy"] = _mean(
+            [source_accuracy[source] for source in FORMAL_VALIDATION_BENCHMARKS]
+        )
+
     return metrics
+
+
+def compute_section18_timing_metrics(
+    *,
+    timing_raw: dict[str, float],
+    stage1_seconds: float = 0.0,
+    stage2_entropy_seconds: float = 0.0,
+    iteration_total_seconds: float,
+) -> dict[str, float]:
+    """Map existing trainer timers to the exact Section-18 analysis contract."""
+    return {
+        "time/stage1": float(stage1_seconds),
+        "time/stage2_entropy": float(stage2_entropy_seconds),
+        "time/rollout": float(
+            timing_raw.get("gen", 0.0) + timing_raw.get("topup/rollout_wall_seconds", 0.0)
+        ),
+        "time/reward": float(
+            timing_raw.get("reward", 0.0) + timing_raw.get("topup/reward_wall_seconds", 0.0)
+        ),
+        "time/topup": float(timing_raw.get("topup", 0.0)),
+        "time/grpo_update": float(timing_raw.get("update_actor", 0.0)),
+        "time/validation": float(timing_raw.get("testing", 0.0)),
+        "time/checkpoint": float(timing_raw.get("save_checkpoint", 0.0)),
+        "time/iteration_total": float(iteration_total_seconds),
+    }

@@ -103,6 +103,20 @@ class HiveComputeCounters:
             "compute/effective_prompt_groups": float(self.effective_prompt_groups),
             "compute/effective_responses": float(self.effective_responses),
             "compute/effective_response_tokens": float(self.effective_response_tokens),
+            "compute/effective_prompt_group_ratio": _safe_ratio(
+                self.effective_prompt_groups, self.generated_prompt_groups
+            ),
+            "compute/effective_response_ratio": _safe_ratio(
+                self.effective_responses, self.generated_responses
+            ),
+            "compute/effective_training_token_ratio": _safe_ratio(
+                self.effective_response_tokens, self.generated_response_tokens
+            ),
+            "compute/effective_prompt_groups_per_1m_generated_response_tokens": (
+                float(self.effective_prompt_groups * 1_000_000 / self.generated_response_tokens)
+                if self.generated_response_tokens
+                else 0.0
+            ),
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -543,6 +557,8 @@ def _metrics(
         "hive/p_easy_after": update.p_easy_after,
         "hive/p_hard_before": update.p_hard_before,
         "hive/p_hard_after": update.p_hard_after,
+        "hive/p_easy": update.p_easy_after,
+        "hive/p_hard": update.p_hard_after,
         "hive/history_visits_committed": 0.0,
         "hive/required_prompt_groups": float(required_prompt_groups),
     }
@@ -552,6 +568,10 @@ def _nonnegative_integer(name: str, value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{name} must be a non-negative integer")
     return value
+
+
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    return float(numerator / denominator) if denominator else 0.0
 
 
 def _positive_integer(name: str, value: int) -> int:

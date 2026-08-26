@@ -128,7 +128,9 @@ def test_trainer_topup_rollout_preserves_stable_identity_and_complete_groups():
     assert reward_infos["reward"][:8].tolist() == [1.0] * 8
     assert reward_infos["reward"][8:].tolist() == [0.1] * 8
     assert reward_infos["extracted"].tolist() == [True] * 16
-    assert timing == {"mock_rollout": 0.25}
+    assert timing["mock_rollout"] == 0.25
+    assert timing["rollout_wall_seconds"] >= 0.0
+    assert timing["reward_wall_seconds"] >= 0.0
     assert trainer.checkpoint_manager.calls == ["sleep"]
 
     prompt_ids = trainer.async_rollout_manager.input_prompt_ids.tolist()

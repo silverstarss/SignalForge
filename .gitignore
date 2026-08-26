@@ -12,6 +12,18 @@ venv/
 .env
 
 # Training outputs and logs
+
+# SignalForge runtime artifacts
+/artifacts/cache/
+/artifacts/checkpoints/
+/artifacts/models/
+/artifacts/outputs/
+/artifacts/pilot_data/
+/artifacts/wandb/
+
+# Superseded pre-decontamination formal pool
+/artifacts/formal_data/hive_math75_dapo25_seed42_max_exact_3to1/
+
 /outputs/
 /outputs
 /checkpoints/

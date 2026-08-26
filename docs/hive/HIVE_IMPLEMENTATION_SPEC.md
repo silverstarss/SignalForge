@@ -1211,6 +1211,29 @@ algorithm.
 
 ---
 
+# 13.2 Epoch-spanning raw prompt acquisition
+
+HIVE initial candidate accumulation and adaptive top-up MAY cross a dataset
+epoch boundary within one optimizer step. Crossing the boundary MUST continue
+the configured sampler's normal next-epoch order; it MUST NOT restart the
+current epoch, repeat a raw row deliberately, or reduce `b_raw`.
+
+Within one optimizer step, each stable `prompt_id` may be presented to HIVE
+selection at most once, including across initial accumulation and all top-up
+rounds. Duplicate rows encountered after an epoch transition are skipped before
+Stage 1, and the remaining rows are accumulated in source order into complete
+`b_raw` batches. Any rows read past a reconstructed `b_raw` boundary are retained
+for the next raw batch rather than discarded.
+
+Checkpoint/resume MUST preserve the StatefulDataLoader sampler/iterator state,
+the HIVE stream epoch index, and any retained pending rows. Because checkpoints
+are written only after a successful optimizer step, the step-local duplicate-ID
+set is intentionally reset on resume for the next optimizer step. This lifecycle
+rule does not change Stage 1, Stage 2, candidate targets, the adaptive top-up
+equation, or step-end history publication.
+
+---
+
 # 14. Final Batch Slicing
 
 Once the effective pool contains at least (B_t) groups:
@@ -1509,7 +1532,9 @@ prompt history
 p_easy
 p_hard
 selector RNG state
-dataset / dataloader resume state if required
+StatefulDataLoader sampler / iterator state
+HIVE raw-stream epoch index and pending pre-read rows
+HIVE dataloader-envelope global step matching the trainer checkpoint
 HIVE configuration
 ```
 

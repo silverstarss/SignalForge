@@ -83,6 +83,12 @@ It does not override `docs/hive/HIVE_IMPLEMENTATION_SPEC.md` except where a revi
   ground truth with the frozen LaTeX verifier.
 - **Identity:** Preserve dataset-qualified stable IDs in every mixture:
   `math:<source_row_id>` and `dapo:<extra_info.index>`.
+- **Frozen clean pool:** Keep all validation rows, remove confirmed `A` exact
+  and `B` trivial-paraphrase overlaps from the complete training source pools,
+  then recompute the maximal exact 3:1 ratio. The frozen result is 7,488 MATH
+  plus 2,496 DAPO prompts (9,984 total); the decisions and source-qualified IDs
+  are recorded under
+  `artifacts/formal_data/hive_math75_dapo25_seed42_validation_clean_max_exact_3to1`.
 - **Reason:** At `G=8`, temperature `1.0`, and calibration response limit
   `1536`, MATH had a materially thicker 1/8--7/8 band and a smaller hard tail;
   DAPO supplied harder examples but was dominated by 0/8 groups. The reviewed
@@ -91,3 +97,26 @@ It does not override `docs/hive/HIVE_IMPLEMENTATION_SPEC.md` except where a revi
 - **Evaluation impact:** Report source composition, the complete correct-count
   histogram, easy/hard/other/effective rates, truncation, extraction failures,
   and generated tokens. Do not revise the mixture from effective ratio alone.
+
+## HIVE-006: Single-GPU adaptive top-up minimum
+
+- **Status:** Approved and frozen on 2026-08-25 after the 80-step single-GPU
+  HIVE mechanism pilot.
+- **Specification references:** Sections 10 and 13.
+- **Adaptation:** Use `b_min = 8` for the current formal reproduction on one
+  RTX PRO 6000D, with `B_t = 32` and the faithful derived
+  `B_cand = 3 * B_t / 2 = 48`. This replaces the paper-scale default
+  `b_min = 64` while preserving the required `b_min <= B_cand` domain.
+- **Reason:** The paper uses `b_min = 64` with `B_cand = 192` or `384`; using
+  `64` with the single-GPU `B_cand = 48` would violate the approved preflight
+  invariant. In the reviewed 80-step pilot, top-up was triggered in 29 steps,
+  `b_min` was binding in 7 of those steps, every optimizer step obtained the
+  exact `B_t = 32` complete effective groups, and no step required more than
+  one top-up round.
+- **Algorithmic impact:** None beyond the explicitly scaled lower bound. The
+  published adaptive equation, candidate cap, frozen selector semantics,
+  complete-partition overshoot rule, and zero-variance filtering are unchanged.
+- **Evaluation impact:** Report `b_min`, `b_min_binding`, adaptive candidate
+  targets, actual candidates, overshoot, and top-up rounds. Do not present
+  `b_min = 8` as a paper-default value or generalize it beyond this single-GPU
+  reproduction.

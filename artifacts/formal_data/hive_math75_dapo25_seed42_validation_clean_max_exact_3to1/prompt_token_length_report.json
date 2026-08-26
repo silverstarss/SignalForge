@@ -1,0 +1,272 @@
+{
+  "overall": {
+    "count": 9984,
+    "min": 57,
+    "mean": 129.99969951923077,
+    "p50": 106,
+    "p75": 142,
+    "p90": 201,
+    "p95": 268,
+    "p99": 480,
+    "p99_5": 644,
+    "p99_9": 953,
+    "max": 1704,
+    "thresholds": {
+      "256": {
+        "count_above": 557,
+        "ratio_above": 0.055789262820512824
+      },
+      "384": {
+        "count_above": 187,
+        "ratio_above": 0.018729967948717948
+      },
+      "512": {
+        "count_above": 88,
+        "ratio_above": 0.008814102564102564
+      },
+      "640": {
+        "count_above": 51,
+        "ratio_above": 0.005108173076923077
+      },
+      "768": {
+        "count_above": 31,
+        "ratio_above": 0.0031049679487179485
+      },
+      "1024": {
+        "count_above": 8,
+        "ratio_above": 0.0008012820512820513
+      },
+      "1280": {
+        "count_above": 3,
+        "ratio_above": 0.00030048076923076925
+      },
+      "1536": {
+        "count_above": 2,
+        "ratio_above": 0.00020032051282051281
+      }
+    }
+  },
+  "by_dataset_source": {
+    "dapo": {
+      "count": 2496,
+      "min": 62,
+      "mean": 143.96113782051282,
+      "p50": 131,
+      "p75": 162,
+      "p90": 203,
+      "p95": 243,
+      "p99": 392,
+      "p99_5": 507,
+      "p99_9": 883,
+      "max": 1085,
+      "thresholds": {
+        "256": {
+          "count_above": 97,
+          "ratio_above": 0.03886217948717949
+        },
+        "384": {
+          "count_above": 27,
+          "ratio_above": 0.010817307692307692
+        },
+        "512": {
+          "count_above": 11,
+          "ratio_above": 0.004407051282051282
+        },
+        "640": {
+          "count_above": 6,
+          "ratio_above": 0.002403846153846154
+        },
+        "768": {
+          "count_above": 4,
+          "ratio_above": 0.0016025641025641025
+        },
+        "1024": {
+          "count_above": 1,
+          "ratio_above": 0.00040064102564102563
+        },
+        "1280": {
+          "count_above": 0,
+          "ratio_above": 0.0
+        },
+        "1536": {
+          "count_above": 0,
+          "ratio_above": 0.0
+        }
+      }
+    },
+    "math": {
+      "count": 7488,
+      "min": 57,
+      "mean": 125.34588675213675,
+      "p50": 99,
+      "p75": 130,
+      "p90": 199,
+      "p95": 280,
+      "p99": 519,
+      "p99_5": 710,
+      "p99_9": 1010,
+      "max": 1704,
+      "thresholds": {
+        "256": {
+          "count_above": 460,
+          "ratio_above": 0.06143162393162393
+        },
+        "384": {
+          "count_above": 160,
+          "ratio_above": 0.021367521367521368
+        },
+        "512": {
+          "count_above": 77,
+          "ratio_above": 0.010283119658119658
+        },
+        "640": {
+          "count_above": 45,
+          "ratio_above": 0.006009615384615385
+        },
+        "768": {
+          "count_above": 27,
+          "ratio_above": 0.003605769230769231
+        },
+        "1024": {
+          "count_above": 7,
+          "ratio_above": 0.0009348290598290599
+        },
+        "1280": {
+          "count_above": 3,
+          "ratio_above": 0.00040064102564102563
+        },
+        "1536": {
+          "count_above": 2,
+          "ratio_above": 0.0002670940170940171
+        }
+      }
+    }
+  },
+  "longest_prompts": [
+    {
+      "prompt_id": "math:2616",
+      "dataset_source": "math",
+      "prompt_token_count": 1704
+    },
+    {
+      "prompt_id": "math:2903",
+      "dataset_source": "math",
+      "prompt_token_count": 1558
+    },
+    {
+      "prompt_id": "math:3058",
+      "dataset_source": "math",
+      "prompt_token_count": 1342
+    },
+    {
+      "prompt_id": "math:3037",
+      "dataset_source": "math",
+      "prompt_token_count": 1220
+    },
+    {
+      "prompt_id": "math:6636",
+      "dataset_source": "math",
+      "prompt_token_count": 1094
+    },
+    {
+      "prompt_id": "dapo:47113738-4cf8-4956-b017-f25bba54e57b",
+      "dataset_source": "dapo",
+      "prompt_token_count": 1085
+    },
+    {
+      "prompt_id": "math:2347",
+      "dataset_source": "math",
+      "prompt_token_count": 1085
+    },
+    {
+      "prompt_id": "math:5723",
+      "dataset_source": "math",
+      "prompt_token_count": 1077
+    },
+    {
+      "prompt_id": "math:3043",
+      "dataset_source": "math",
+      "prompt_token_count": 1010
+    },
+    {
+      "prompt_id": "math:3957",
+      "dataset_source": "math",
+      "prompt_token_count": 953
+    },
+    {
+      "prompt_id": "math:3648",
+      "dataset_source": "math",
+      "prompt_token_count": 941
+    },
+    {
+      "prompt_id": "dapo:f65af847-7a91-43fc-abea-766f9ebf7927",
+      "dataset_source": "dapo",
+      "prompt_token_count": 922
+    },
+    {
+      "prompt_id": "math:544",
+      "dataset_source": "math",
+      "prompt_token_count": 912
+    },
+    {
+      "prompt_id": "math:960",
+      "dataset_source": "math",
+      "prompt_token_count": 892
+    },
+    {
+      "prompt_id": "math:4551",
+      "dataset_source": "math",
+      "prompt_token_count": 890
+    },
+    {
+      "prompt_id": "math:3424",
+      "dataset_source": "math",
+      "prompt_token_count": 889
+    },
+    {
+      "prompt_id": "math:4541",
+      "dataset_source": "math",
+      "prompt_token_count": 888
+    },
+    {
+      "prompt_id": "dapo:20563aa2-ba33-463d-b983-53c08f172815",
+      "dataset_source": "dapo",
+      "prompt_token_count": 883
+    },
+    {
+      "prompt_id": "math:413",
+      "dataset_source": "math",
+      "prompt_token_count": 872
+    },
+    {
+      "prompt_id": "math:6405",
+      "dataset_source": "math",
+      "prompt_token_count": 869
+    },
+    {
+      "prompt_id": "math:4207",
+      "dataset_source": "math",
+      "prompt_token_count": 867
+    },
+    {
+      "prompt_id": "math:4567",
+      "dataset_source": "math",
+      "prompt_token_count": 864
+    },
+    {
+      "prompt_id": "math:6474",
+      "dataset_source": "math",
+      "prompt_token_count": 850
+    },
+    {
+      "prompt_id": "math:4507",
+      "dataset_source": "math",
+      "prompt_token_count": 846
+    },
+    {
+      "prompt_id": "dapo:e42f3d04-0f92-4b79-a787-4973be250d70",
+      "dataset_source": "dapo",
+      "prompt_token_count": 845
+    }
+  ]
+}

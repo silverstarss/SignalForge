@@ -239,6 +239,9 @@ def test_one_topup_round_fills_batch_and_keeps_partition_overshoot():
     assert final.metrics["hive/topup_candidate_overshoot"] == 2.0
     assert final.metrics["hive/topup_candidate_actual"] == float(actual)
     assert final.metrics["hive/topup_candidate_target"] == float(plan.candidate_target)
+    assert final.metrics["hive/estimated_zero_var_ratio"] == plan.rho_zv
+    assert final.metrics["hive/p_easy"] == final.metrics["hive/p_easy_after"]
+    assert final.metrics["hive/p_hard"] == final.metrics["hive/p_hard_after"]
     assert final.metrics["hive/topup_b_min"] == 1.0
     assert final.metrics["hive/topup_b_min_binding"] == 0.0
     assert final.metrics["hive/generated_groups_topup"] == float(actual)

@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "validation_policy": "validation rows are immutable; remove A/B matches from training only",
+  "candidate_generation": {
+    "normalized_word_ngram_size": 13,
+    "candidate_pairs": 3620,
+    "candidate_benchmark_rows": 264,
+    "manual_review_lcs_threshold": 0.8,
+    "manual_review_char_threshold": 0.9,
+    "manual_review_pairs": 224
+  },
+  "pair_match_type_counts": {
+    "C": 3500,
+    "A": 51,
+    "B": 69
+  },
+  "removed_unique_prompt_counts": {
+    "exact_A": 45,
+    "near_duplicate_B_excluding_A": 61,
+    "total": 106,
+    "by_dataset_source": {
+      "dapo": 100,
+      "math": 6
+    }
+  },
+  "removed_prompt_ids": [
+    "dapo:03397ac4-f821-471c-b44f-bc26cce8123f",
+    "dapo:05d3d17d-15d8-4f34-a7c0-0563f85bba40",
+    "dapo:06390219-477f-4848-8e3d-df373fb51e8d",
+    "dapo:0af10d5c-2bdc-488c-91b9-a1ce45728b90",
+    "dapo:0c69905c-ed03-4dbf-804c-e5d06218d1b0",
+    "dapo:0cac63d3-2050-4255-8574-9e8b77fa5e36",
+    "dapo:0cea5fb4-01ed-400b-bbc0-bddc21068ad7",
+    "dapo:0e0a3495-9f42-4413-aa95-351384b9a632",
+    "dapo:0f442dc9-6ef7-4a2b-9d81-49a86b3e2e8b",
+    "dapo:146bc3eb-f75b-4015-9a51-86f9ea624864",
+    "dapo:16100bfd-5fd3-4ed2-a75f-2a1db4aa2317",
+    "dapo:16d60e70-f320-4b7b-9d3e-1ebb8b299d9f",
+    "dapo:1b74354d-8c55-4a8f-806e-193568af2210",
+    "dapo:1fa53fc5-6c25-443f-900f-49a01399fb17",
+    "dapo:22e4c92d-3d7a-487f-a58e-4884fb4eb9f5",
+    "dapo:25f28d8f-466c-48a1-9eec-6f34287c3047",
+    "dapo:273daed8-850f-48d5-bc3e-132bcc548d8f",
+    "dapo:281d4d68-6b5b-444b-84b1-b170dd3472d8",
+    "dapo:28899bd8-d432-414d-bc00-f2dbc9e63ec8",
+    "dapo:289ca48e-2a54-4b80-ab84-b28b5380f302",
+    "dapo:29267fa5-4acc-4983-80d3-7620d96135ee",
+    "dapo:2d36205b-3bc4-4191-8ffa-28a843239541",
+    "dapo:2ebec39f-4dea-48c9-9616-f1bde006a0ae",
+    "dapo:3639ed57-032a-465b-9fa6-495d6e22bc7f",
+    "dapo:40e3125a-4f8d-4117-93d5-a388d9e842ff",
+    "dapo:418b8cc0-633f-4d8e-a944-9dd1755e185d",
+    "dapo:4195b9ef-956a-4347-bfd8-52bb0f0c009d",
+    "dapo:43963399-52ef-42a1-8b5e-21f33ffb7149",
+    "dapo:4799a32b-9e84-4fb5-8b4b-598d62472248",
+    "dapo:4b498d6c-64f3-46c1-a2aa-608463108289",
+    "dapo:4dae5ac0-b56b-42d9-9fbe-8f95d40cb582",
+    "dapo:4fcc2889-ebd3-4faa-8cb6-002f092dc104",
+    "dapo:5004d7b8-84d8-479c-8baf-8873b39e74de",
+    "dapo:500b903c-7629-4cbf-ac85-bba1beeb915f",
+    "dapo:531322c5-af2a-48a8-9300-2973a665e72a",
+    "dapo:590bf669-fc0e-4cb3-9392-b3a03a053f2d",
+    "dapo:59d29e44-8798-4f77-9088-fc454d635276",
+    "dapo:5a9ea7d2-faa3-41b9-b097-875f39e7f1b1",
+    "dapo:5b5665ef-cc5c-43f0-aec2-e846dd0758f9",
+    "dapo:5bc6d5be-eb33-4fe3-ba31-24a42f8b7893",
+    "dapo:5e9727b4-ae12-42fb-8847-abb5c9e3e42f",
+    "dapo:60448a31-8730-4f4c-bd4a-6a52750fe3db",
+    "dapo:61b6424a-23fb-45a8-9b03-d57d10ad1b36",
+    "dapo:61c1bbba-9d10-461a-ac8e-bebaac62b671",
+    "dapo:65098cce-8d8a-46b9-be65-1e66b6118649",
+    "dapo:6b27d0b2-adf5-4fef-9c2e-c395655bd021",
+    "dapo:6cdcf169-1006-4714-866c-3c93803fc123",
+    "dapo:72d5730c-3ae5-4792-b6ea-088eba3a6b93",
+    "dapo:72f50f79-bf70-449f-811b-33befca9ab75",
+    "dapo:75025e14-e1f8-4760-9b31-900ff33a7aad",
+    "dapo:7588fd4f-717c-44d1-a7ee-3deb0ca6cdf0",
+    "dapo:777a2936-c6ef-4266-95e9-de03f69a3d0a",
+    "dapo:791c794d-8e98-4b32-88ec-44b1cf856cd9",
+    "dapo:7b0b2e8e-41d8-4591-b278-99b23df7dad7",
+    "dapo:7b798ada-5134-48da-a883-1ca8370fbf57",
+    "dapo:7b97bc7e-be56-4974-a2e6-ba2667c055f4",
+    "dapo:7f406bee-0cc8-4617-b84a-a0e76972d464",
+    "dapo:7f4c1080-4073-4ee9-be17-db2e49c6c811",
+    "dapo:84186b86-cbff-4775-9405-7f72a9d93a58",
+    "dapo:84501b44-688d-4518-be16-d188f0a0e8d3",
+    "dapo:8e2f2bf9-0071-4417-a8c9-02ee8e493657",
+    "dapo:981a2595-ce0e-49d4-9595-d331639332b6",
+    "dapo:9af74819-3561-49ac-b0aa-cee1fde3982f",
+    "dapo:a0516c25-7e08-4900-bb5d-671e3d744784",
+    "dapo:a208ad4e-651b-4b75-a619-31bf1314bbed",
+    "dapo:a3163054-54f4-4093-aaac-0c2851e26e46",
+    "dapo:a3b3befa-8ba8-4087-8cfc-1e4fe1ba4bed",
+    "dapo:a800a4c2-b468-4df2-beb6-4434f2f2b558",
+    "dapo:a98738fe-1a9f-4470-ac66-78e2bc6ec4e6",
+    "dapo:ad0ae27c-5455-4dfc-b409-c89f965a13ff",
+    "dapo:b0451a9b-d051-43fc-bc2d-6c0aeb05a5e4",
+    "dapo:b04c44de-3e20-4766-b897-29fe9cbe9101",
+    "dapo:b1ff035d-5976-43c0-8bb3-b7fa2f94c95f",
+    "dapo:b2843dea-c8b5-4426-b52f-78cc1ef8ecee",
+    "dapo:b2b80b78-75db-4147-98e0-ae7aefd2a58f",
+    "dapo:b6b3e8b3-27c4-4255-965f-f360da2a320a",
+    "dapo:b95f2717-7f00-41b0-91f4-8bc7ba4b65aa",
+    "dapo:ba0f1e0f-c4e5-487a-8bf6-fc0c2d69f1bc",
+    "dapo:ba80d89e-f533-4a80-b7cb-9c2075a6b39d",
+    "dapo:c0659f3a-2792-4cc8-b669-9c50d7382147",
+    "dapo:c3e0a3fe-1c42-4a54-ae63-2e35268249e3",
+    "dapo:c5100a81-2240-4a82-8173-44cb556fcccf",
+    "dapo:c8d40ede-9e08-42e7-96ed-7d31101fb813",
+    "dapo:c93c7898-c693-44a5-a8be-c01fba13e3e6",
+    "dapo:c9631322-c5f6-4032-b479-8f95802253c3",
+    "dapo:c973e5f2-28a9-46a7-a0b0-80fad333c7f2",
+    "dapo:ca309825-4962-423f-8bfa-98151debb709",
+    "dapo:cd691849-dd52-4fb4-b847-4f65af2ef4df",
+    "dapo:cd831d39-ccfe-4680-b08e-468d9f8f63aa",
+    "dapo:cf6640af-1d43-414e-a62c-593105292999",
+    "dapo:d1ebcd80-4a87-4bf6-80d9-a54420845d2c",
+    "dapo:d231706b-28d1-4ebd-88ea-b5217164a262",
+    "dapo:e18db739-e517-404b-8e6a-3c4e55df55a4",
+    "dapo:e4ac552f-36b9-4dd3-87f3-e90ba85c99c5",
+    "dapo:ed4815a1-a56d-4eef-b533-2b5e3c1b7151",
+    "dapo:f1721a48-eb51-43bd-80c1-73ac2811e689",
+    "dapo:f5b45b45-bc20-4f0e-82cc-1d48a95028dc",
+    "dapo:f7bedc6d-6cf9-41d0-bace-48c3ca197d00",
+    "dapo:fbfc2f27-8e36-4535-a6fd-20822c50ab81",
+    "dapo:fcabd287-8c09-4350-ac36-e157de849b92",
+    "math:1509",
+    "math:3443",
+    "math:4009",
+    "math:4487",
+    "math:6864",
+    "math:7294"
+  ],
+  "legacy_selected_pool_exact9_review": [
+    {
+      "train_prompt_id": "dapo:777a2936-c6ef-4266-95e9-de03f69a3d0a",
+      "decision": "remove",
+      "match_types": [
+        "A"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "amc23",
+          "benchmark_id": "15",
+          "match_type": "A",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        },
+        {
+          "benchmark": "gaokao2023en",
+          "benchmark_id": "346",
+          "match_type": "A",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "dapo:b2843dea-c8b5-4426-b52f-78cc1ef8ecee",
+      "decision": "remove",
+      "match_types": [
+        "A"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "amc23",
+          "benchmark_id": "30",
+          "match_type": "A",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        },
+        {
+          "benchmark": "gaokao2023en",
+          "benchmark_id": "354",
+          "match_type": "A",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "dapo:40e3125a-4f8d-4117-93d5-a388d9e842ff",
+      "decision": "remove",
+      "match_types": [
+        "A"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "math500",
+          "benchmark_id": "test/intermediate_algebra/582.json",
+          "match_type": "A",
+          "similarity": 0.776119,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "dapo:f5b45b45-bc20-4f0e-82cc-1d48a95028dc",
+      "decision": "remove",
+      "match_types": [
+        "A"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "math500",
+          "benchmark_id": "test/algebra/1282.json",
+          "match_type": "A",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "dapo:590bf669-fc0e-4cb3-9392-b3a03a053f2d",
+      "decision": "remove",
+      "match_types": [
+        "B"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "olympiadbench",
+          "benchmark_id": "2006",
+          "match_type": "B",
+          "similarity": 0.988679,
+          "decision": "remove",
+          "reason": "manual review confirmed the same mathematical task; differences are presentation, trivial wording, or equivalent source-preserving notation"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "dapo:b0451a9b-d051-43fc-bc2d-6c0aeb05a5e4",
+      "decision": "remove",
+      "match_types": [
+        "A"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "olympiadbench",
+          "benchmark_id": "2021",
+          "match_type": "A",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "operator-preserving normalized semantic tokens are identical"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "math:4487",
+      "decision": "remove",
+      "match_types": [
+        "B"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "olympiadbench",
+          "benchmark_id": "2791",
+          "match_type": "B",
+          "similarity": 0.88,
+          "decision": "remove",
+          "reason": "manual review confirmed the same mathematical task; differences are presentation, trivial wording, or equivalent source-preserving notation"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "math:3443",
+      "decision": "remove",
+      "match_types": [
+        "B"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "olympiadbench",
+          "benchmark_id": "2890",
+          "match_type": "B",
+          "similarity": 1.0,
+          "decision": "remove",
+          "reason": "manual review confirmed the same mathematical task; differences are presentation, trivial wording, or equivalent source-preserving notation"
+        }
+      ],
+      "reason": "confirmed validation overlap"
+    },
+    {
+      "train_prompt_id": "math:7163",
+      "decision": "keep",
+      "match_types": [
+        "C"
+      ],
+      "benchmark_matches": [
+        {
+          "benchmark": "math500",
+          "benchmark_id": "test/precalculus/285.json",
+          "match_type": "C",
+          "similarity": 1.0,
+          "decision": "keep",
+          "reason": "manual review found a changed target, constraint, numeric instance, operator, or genuinely different problem"
+        }
+      ],
+      "reason": "prior operator-dropping normalization false positive; operator-preserving audit keeps it"
+    }
+  ],
+  "validation_cross_benchmark_duplicates_retained": {
+    "benchmarks": [
+      "amc23",
+      "gaokao2023en"
+    ],
+    "declared_count": 8,
+    "observed_count": 9,
+    "count_conflict": true,
+    "pairs": [
+      {
+        "amc23": "15",
+        "gaokao2023en": "346"
+      },
+      {
+        "amc23": "16",
+        "gaokao2023en": "347"
+      },
+      {
+        "amc23": "18",
+        "gaokao2023en": "298"
+      },
+      {
+        "amc23": "30",
+        "gaokao2023en": "354"
+      },
+      {
+        "amc23": "36",
+        "gaokao2023en": "318"
+      },
+      {
+        "amc23": "40",
+        "gaokao2023en": "358"
+      },
+      {
+        "amc23": "44",
+        "gaokao2023en": "320"
+      },
+      {
+        "amc23": "47",
+        "gaokao2023en": "349"
+      },
+      {
+        "amc23": "48",
+        "gaokao2023en": "350"
+      }
+    ],
+    "reporting": "retain both suites; report each and the preregistered six-suite average"
+  },
+  "clean_source_counts": {
+    "math": 7490,
+    "dapo": 17817
+  },
+  "selected_counts": {
+    "math": 7488,
+    "dapo": 2496
+  },
+  "selected_total": 9984,
+  "selected_stable_prompt_id_unique": true
+}

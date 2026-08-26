@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from numbers import Real
 from typing import Sequence
@@ -43,6 +44,7 @@ class HivePreRolloutPreparedRound:
     accepted_indices: tuple[int, ...]
     canonical_prompts: tuple[CanonicalHivePrompt, ...]
     entropy_rpc_batch: TensorDict | None
+    stage1_latency_seconds: float
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ class HivePreRolloutRoundResult:
     entropy_latency_seconds: float
     entropy_peak_allocated_bytes: int
     entropy_peak_reserved_bytes: int
+    stage1_latency_seconds: float
 
     @property
     def selected_prompt_ids(self) -> tuple[str, ...]:
@@ -114,7 +117,9 @@ class HivePreRolloutStep:
             raise ValueError("temporary rollout uid must be assigned after HIVE pre-rollout selection")
 
         prompt_ids = attach_stable_prompt_ids(raw_batch.non_tensor_batch)
+        stage1_started_at = time.perf_counter()
         stage1 = self.stage1_selector.select(prompt_ids, historical_entropy_scores=None)
+        stage1_latency_seconds = time.perf_counter() - stage1_started_at
         accepted_set = set(stage1.accepted_prompt_ids)
         accepted_indices = tuple(index for index, prompt_id in enumerate(prompt_ids) if prompt_id in accepted_set)
 
@@ -142,6 +147,7 @@ class HivePreRolloutStep:
             accepted_indices=accepted_indices,
             canonical_prompts=canonical_prompts,
             entropy_rpc_batch=entropy_rpc_batch,
+            stage1_latency_seconds=stage1_latency_seconds,
         )
 
     def finish_round(
@@ -189,6 +195,7 @@ class HivePreRolloutStep:
             entropy_latency_seconds=latency,
             entropy_peak_allocated_bytes=peak_allocated,
             entropy_peak_reserved_bytes=peak_reserved,
+            stage1_latency_seconds=prepared.stage1_latency_seconds,
         )
         self.append_round(result)
         return result
@@ -286,12 +293,37 @@ def _finite_nonnegative_max(result: TensorDict, key: str, *, integer: bool) -> i
     return int(value) if integer else value
 
 
+def aggregate_pre_rollout_selection_metrics(
+    results: Sequence[HivePreRolloutStepResult],
+) -> dict[str, float]:
+    """Aggregate Section-18 selection metrics across initial and top-up acquisitions."""
+    rounds = tuple(round_result for result in results for round_result in result.rounds)
+    return _aggregate_selection_metrics(rounds)
+
+
 def _aggregate_metrics(
     rounds: Sequence[HivePreRolloutRoundResult],
     *,
     effective_batch_size: int,
     candidate_target: int,
     candidate_actual: int,
+) -> dict[str, float]:
+    metrics = _aggregate_selection_metrics(rounds)
+    metrics.update(
+        {
+            "hive/pre_rollout_candidate_count": float(candidate_actual),
+            "hive/candidate_target": float(candidate_target),
+            "hive/candidate_actual": float(candidate_actual),
+            "hive/candidate_overshoot": float(candidate_actual - candidate_target),
+            "hive/candidate_actual_ratio_to_Bt": float(candidate_actual / effective_batch_size),
+            "hive/candidate_accumulation_rounds": float(len(rounds)),
+        }
+    )
+    return metrics
+
+
+def _aggregate_selection_metrics(
+    rounds: Sequence[HivePreRolloutRoundResult],
 ) -> dict[str, float]:
     stage1_diagnostics = [round_result.stage1.diagnostics for round_result in rounds]
     stage2_diagnostics = [round_result.stage2.diagnostics for round_result in rounds]
@@ -303,11 +335,32 @@ def _aggregate_metrics(
         [record.entropy for round_result in rounds for record in round_result.entropy_records],
         dtype=np.float64,
     )
+    selected_entropy = np.asarray(
+        [record.entropy for round_result in rounds for record in round_result.stage2.kept],
+        dtype=np.float64,
+    )
+    rejected_entropy = np.asarray(
+        [
+            record.entropy
+            for round_result in rounds
+            for record in (
+                *round_result.stage2.upper_trimmed,
+                *round_result.stage2.low_entropy_rejected,
+                *round_result.stage2.rounding_dropped,
+            )
+        ],
+        dtype=np.float64,
+    )
     if entropy_values.size:
         entropy_mean = float(entropy_values.mean())
+        entropy_std = float(entropy_values.std())
+        entropy_min = float(entropy_values.min())
+        entropy_max = float(entropy_values.max())
         q25, q50, q75 = (float(value) for value in np.quantile(entropy_values, [0.25, 0.5, 0.75]))
     else:
-        entropy_mean = q25 = q50 = q75 = 0.0
+        entropy_mean = entropy_std = entropy_min = entropy_max = q25 = q50 = q75 = 0.0
+    stage2_input = sum(item.input_count for item in stage2_diagnostics)
+    stage2_kept = sum(item.post_round_keep_count for item in stage2_diagnostics)
 
     return {
         "hive/raw_prompts_seen": float(raw),
@@ -315,23 +368,40 @@ def _aggregate_metrics(
         "hive/stage1_accepted": float(accepted),
         "hive/stage1_rejected": float(rejected),
         "hive/stage1_accept_ratio": float(accepted / raw) if raw else 0.0,
-        "hive/stage2_input": float(sum(item.input_count for item in stage2_diagnostics)),
-        "hive/stage2_upper_trimmed": float(sum(item.actual_upper_trim_count for item in stage2_diagnostics)),
-        "hive/stage2_pre_round_keep": float(sum(item.pre_round_keep_count for item in stage2_diagnostics)),
-        "hive/stage2_rounding_dropped": float(sum(item.rounding_dropped_count for item in stage2_diagnostics)),
-        "hive/stage2_kept": float(sum(item.post_round_keep_count for item in stage2_diagnostics)),
-        "hive/stage2_low_entropy_rejected": float(sum(item.low_entropy_reject_count for item in stage2_diagnostics)),
+        "hive/stage2_input": float(stage2_input),
+        "hive/stage2_upper_trimmed": float(
+            sum(item.actual_upper_trim_count for item in stage2_diagnostics)
+        ),
+        "hive/stage2_pre_round_keep": float(
+            sum(item.pre_round_keep_count for item in stage2_diagnostics)
+        ),
+        "hive/stage2_rounding_dropped": float(
+            sum(item.rounding_dropped_count for item in stage2_diagnostics)
+        ),
+        "hive/stage2_kept": float(stage2_kept),
+        "hive/stage2_keep_ratio": float(stage2_kept / stage2_input) if stage2_input else 0.0,
+        "hive/stage2_low_entropy_rejected": float(
+            sum(item.low_entropy_reject_count for item in stage2_diagnostics)
+        ),
         "hive/prompt_entropy_mean": entropy_mean,
+        "hive/prompt_entropy_std": entropy_std,
+        "hive/prompt_entropy_min": entropy_min,
+        "hive/prompt_entropy_max": entropy_max,
         "hive/prompt_entropy_q25": q25,
         "hive/prompt_entropy_q50": q50,
         "hive/prompt_entropy_q75": q75,
-        "hive/pre_rollout_candidate_count": float(candidate_actual),
-        "hive/candidate_target": float(candidate_target),
-        "hive/candidate_actual": float(candidate_actual),
-        "hive/candidate_overshoot": float(candidate_actual - candidate_target),
-        "hive/candidate_actual_ratio_to_Bt": float(candidate_actual / effective_batch_size),
-        "hive/candidate_accumulation_rounds": float(len(rounds)),
-        "hive/stage2_entropy_latency_seconds": float(sum(item.entropy_latency_seconds for item in rounds)),
+        "hive/selected_entropy_mean": (
+            float(selected_entropy.mean()) if selected_entropy.size else 0.0
+        ),
+        "hive/rejected_entropy_mean": (
+            float(rejected_entropy.mean()) if rejected_entropy.size else 0.0
+        ),
+        "hive/stage1_latency_seconds": float(
+            sum(item.stage1_latency_seconds for item in rounds)
+        ),
+        "hive/stage2_entropy_latency_seconds": float(
+            sum(item.entropy_latency_seconds for item in rounds)
+        ),
         "hive/stage2_entropy_peak_allocated_bytes": float(
             max((item.entropy_peak_allocated_bytes for item in rounds), default=0)
         ),

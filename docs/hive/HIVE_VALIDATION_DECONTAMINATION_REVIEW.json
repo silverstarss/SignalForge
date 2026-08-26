@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "qwen_eval_revision": "a45202bd16f1ec06f433442dc1152d0074773465",
+  "math500_revision": "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be",
+  "ngram_size": 13,
+  "manual_review_lcs_threshold": 0.8,
+  "manual_review_char_threshold": 0.9,
+  "manual_review_basis": "All complete-source candidate pairs with token-LCS >= 0.8 or normalized-character similarity >= 0.9 were manually reviewed. A is operator-preserving semantic-token identity; B is the same mathematical task with presentation, trivial wording, typo, or equivalent notation differences; C changes the target, constraint, numeric instance, operator, or problem.",
+  "expected_complete_source_audit": {
+    "candidate_pairs": 3620,
+    "candidate_benchmark_rows": 264,
+    "manual_review_pairs": 224
+  },
+  "legacy_reported_exact_train_ids": [
+    "dapo:777a2936-c6ef-4266-95e9-de03f69a3d0a",
+    "dapo:b2843dea-c8b5-4426-b52f-78cc1ef8ecee",
+    "dapo:40e3125a-4f8d-4117-93d5-a388d9e842ff",
+    "dapo:f5b45b45-bc20-4f0e-82cc-1d48a95028dc",
+    "dapo:590bf669-fc0e-4cb3-9392-b3a03a053f2d",
+    "dapo:b0451a9b-d051-43fc-bc2d-6c0aeb05a5e4",
+    "math:4487",
+    "math:3443",
+    "math:7163"
+  ],
+  "manual_same_problem_pairs": [
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2021",
+      "train_prompt_id": "dapo:7b798ada-5134-48da-a883-1ca8370fbf57"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2022",
+      "train_prompt_id": "dapo:28899bd8-d432-414d-bc00-f2dbc9e63ec8"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2890",
+      "train_prompt_id": "math:3443"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1866",
+      "train_prompt_id": "dapo:a0516c25-7e08-4900-bb5d-671e3d744784"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "307",
+      "train_prompt_id": "dapo:ad0ae27c-5455-4dfc-b409-c89f965a13ff"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2006",
+      "train_prompt_id": "dapo:590bf669-fc0e-4cb3-9392-b3a03a053f2d"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1807",
+      "train_prompt_id": "dapo:cf6640af-1d43-414e-a62c-593105292999"
+    },
+    {
+      "benchmark": "math500",
+      "benchmark_id": "test/geometry/229.json",
+      "train_prompt_id": "dapo:ba0f1e0f-c4e5-487a-8bf6-fc0c2d69f1bc"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "4",
+      "train_prompt_id": "dapo:273daed8-850f-48d5-bc3e-132bcc548d8f"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2153",
+      "train_prompt_id": "dapo:531322c5-af2a-48a8-9300-2973a665e72a"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1832",
+      "train_prompt_id": "dapo:72f50f79-bf70-449f-811b-33befca9ab75"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1847",
+      "train_prompt_id": "dapo:4dae5ac0-b56b-42d9-9fbe-8f95d40cb582"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "330",
+      "train_prompt_id": "dapo:7b0b2e8e-41d8-4591-b278-99b23df7dad7"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2064",
+      "train_prompt_id": "dapo:25f28d8f-466c-48a1-9eec-6f34287c3047"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2607",
+      "train_prompt_id": "dapo:c8d40ede-9e08-42e7-96ed-7d31101fb813"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "14",
+      "train_prompt_id": "dapo:9af74819-3561-49ac-b0aa-cee1fde3982f"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1945",
+      "train_prompt_id": "dapo:281d4d68-6b5b-444b-84b1-b170dd3472d8"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "22",
+      "train_prompt_id": "dapo:c93c7898-c693-44a5-a8be-c01fba13e3e6"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2126",
+      "train_prompt_id": "dapo:60448a31-8730-4f4c-bd4a-6a52750fe3db"
+    },
+    {
+      "benchmark": "math500",
+      "benchmark_id": "test/counting_and_probability/1003.json",
+      "train_prompt_id": "dapo:61c1bbba-9d10-461a-ac8e-bebaac62b671"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1631",
+      "train_prompt_id": "dapo:c9631322-c5f6-4032-b479-8f95802253c3"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2794",
+      "train_prompt_id": "math:7294"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "166",
+      "train_prompt_id": "dapo:500b903c-7629-4cbf-ac85-bba1beeb915f"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "7",
+      "train_prompt_id": "dapo:b6b3e8b3-27c4-4255-965f-f360da2a320a"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "355",
+      "train_prompt_id": "dapo:05d3d17d-15d8-4f34-a7c0-0563f85bba40"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "48",
+      "train_prompt_id": "dapo:d1ebcd80-4a87-4bf6-80d9-a54420845d2c"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "12",
+      "train_prompt_id": "dapo:ed4815a1-a56d-4eef-b533-2b5e3c1b7151"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "312",
+      "train_prompt_id": "dapo:981a2595-ce0e-49d4-9595-d331639332b6"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "310",
+      "train_prompt_id": "dapo:5e9727b4-ae12-42fb-8847-abb5c9e3e42f"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1724",
+      "train_prompt_id": "dapo:0cea5fb4-01ed-400b-bbc0-bddc21068ad7"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "104",
+      "train_prompt_id": "dapo:59d29e44-8798-4f77-9088-fc454d635276"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "47",
+      "train_prompt_id": "dapo:ba80d89e-f533-4a80-b7cb-9c2075a6b39d"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "349",
+      "train_prompt_id": "dapo:ba80d89e-f533-4a80-b7cb-9c2075a6b39d"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "350",
+      "train_prompt_id": "dapo:d1ebcd80-4a87-4bf6-80d9-a54420845d2c"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1873",
+      "train_prompt_id": "dapo:fbfc2f27-8e36-4535-a6fd-20822c50ab81"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "41",
+      "train_prompt_id": "dapo:a3163054-54f4-4093-aaac-0c2851e26e46"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "46",
+      "train_prompt_id": "dapo:8e2f2bf9-0071-4417-a8c9-02ee8e493657"
+    },
+    {
+      "benchmark": "math500",
+      "benchmark_id": "test/intermediate_algebra/964.json",
+      "train_prompt_id": "dapo:c5100a81-2240-4a82-8173-44cb556fcccf"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "13",
+      "train_prompt_id": "dapo:1fa53fc5-6c25-443f-900f-49a01399fb17"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "335",
+      "train_prompt_id": "dapo:4fcc2889-ebd3-4faa-8cb6-002f092dc104"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2791",
+      "train_prompt_id": "dapo:84186b86-cbff-4775-9405-7f72a9d93a58"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "303",
+      "train_prompt_id": "dapo:c93c7898-c693-44a5-a8be-c01fba13e3e6"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "25",
+      "train_prompt_id": "dapo:3639ed57-032a-465b-9fa6-495d6e22bc7f"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "359",
+      "train_prompt_id": "dapo:a3163054-54f4-4093-aaac-0c2851e26e46"
+    },
+    {
+      "benchmark": "math500",
+      "benchmark_id": "test/intermediate_algebra/337.json",
+      "train_prompt_id": "math:1509"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "8",
+      "train_prompt_id": "dapo:2ebec39f-4dea-48c9-9616-f1bde006a0ae"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "323",
+      "train_prompt_id": "dapo:ca309825-4962-423f-8bfa-98151debb709"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "326",
+      "train_prompt_id": "dapo:8e2f2bf9-0071-4417-a8c9-02ee8e493657"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "345",
+      "train_prompt_id": "dapo:9af74819-3561-49ac-b0aa-cee1fde3982f"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "26",
+      "train_prompt_id": "dapo:0c69905c-ed03-4dbf-804c-e5d06218d1b0"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "20",
+      "train_prompt_id": "dapo:16100bfd-5fd3-4ed2-a75f-2a1db4aa2317"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1807",
+      "train_prompt_id": "dapo:d231706b-28d1-4ebd-88ea-b5217164a262"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1847",
+      "train_prompt_id": "dapo:fcabd287-8c09-4350-ac36-e157de849b92"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2607",
+      "train_prompt_id": "math:4009"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "4",
+      "train_prompt_id": "dapo:a800a4c2-b468-4df2-beb6-4434f2f2b558"
+    },
+    {
+      "benchmark": "math500",
+      "benchmark_id": "test/geometry/229.json",
+      "train_prompt_id": "dapo:289ca48e-2a54-4b80-ab84-b28b5380f302"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "7",
+      "train_prompt_id": "dapo:5bc6d5be-eb33-4fe3-ba31-24a42f8b7893"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1873",
+      "train_prompt_id": "dapo:146bc3eb-f75b-4015-9a51-86f9ea624864"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1873",
+      "train_prompt_id": "dapo:5b5665ef-cc5c-43f0-aec2-e846dd0758f9"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "22",
+      "train_prompt_id": "dapo:7b97bc7e-be56-4974-a2e6-ba2667c055f4"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1873",
+      "train_prompt_id": "dapo:cd691849-dd52-4fb4-b847-4f65af2ef4df"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "2791",
+      "train_prompt_id": "math:4487"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "19",
+      "train_prompt_id": "dapo:a98738fe-1a9f-4470-ac66-78e2bc6ec4e6"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "10",
+      "train_prompt_id": "dapo:e18db739-e517-404b-8e6a-3c4e55df55a4"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "5",
+      "train_prompt_id": "dapo:b1ff035d-5976-43c0-8bb3-b7fa2f94c95f"
+    },
+    {
+      "benchmark": "olympiadbench",
+      "benchmark_id": "1847",
+      "train_prompt_id": "dapo:c3e0a3fe-1c42-4a54-ae63-2e35268249e3"
+    },
+    {
+      "benchmark": "amc23",
+      "benchmark_id": "8",
+      "train_prompt_id": "dapo:4799a32b-9e84-4fb5-8b4b-598d62472248"
+    },
+    {
+      "benchmark": "gaokao2023en",
+      "benchmark_id": "303",
+      "train_prompt_id": "dapo:7b97bc7e-be56-4974-a2e6-ba2667c055f4"
+    },
+    {
+      "benchmark": "math500",
+      "benchmark_id": "test/algebra/1282.json",
+      "train_prompt_id": "dapo:7f4c1080-4073-4ee9-be17-db2e49c6c811"
+    }
+  ]
+}

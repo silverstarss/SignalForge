@@ -37,7 +37,9 @@ from tqdm import tqdm
 
 from signal_forge.hive import (
     ExplorationControllerConfig,
+    HIVE_DATALOADER_CHECKPOINT_FORMAT,
     HiveComputeCounters,
+    HiveEpochSpanningDataStream,
     HiveAdaptiveTopupAccumulator,
     HiveAdaptiveTopupConfig,
     HiveTopupAcquisitionDiagnostics,
@@ -54,6 +56,7 @@ from signal_forge.hive import (
     Stage1StepSelector,
     Stage2Config,
     Stage2Selector,
+    aggregate_pre_rollout_selection_metrics,
     compute_stage2_counts,
     validate_hive_prompt_preprocessing_scope,
 )
@@ -62,6 +65,7 @@ from signal_forge.observability import (
     compute_group_metrics,
     compute_length_metrics,
     compute_reward_extra_metrics,
+    compute_section18_timing_metrics,
     compute_validation_alias_metrics,
 )
 
@@ -575,6 +579,8 @@ class RayPPOTrainer:
         self._hive_pre_rollout_config: HivePreRolloutConfig | None = None
         self._hive_compute_counters: HiveComputeCounters | None = None
         self._hive_topup_config: HiveAdaptiveTopupConfig | None = None
+        self._hive_data_stream: HiveEpochSpanningDataStream | None = None
+        self._restored_hive_data_stream_state: dict[str, Any] | None = None
         self._initialize_hive_selector_state()
 
     def _initialize_hive_selector_state(self) -> None:
@@ -967,7 +973,7 @@ class RayPPOTrainer:
 
     def _select_hive_pre_rollout_candidates(
         self,
-        first_batch_dict: dict[str, Any],
+        first_batch_dict: dict[str, Any] | DataProto,
         raw_batch_iterator,
         *,
         stage1_selector: Stage1StepSelector | None = None,
@@ -983,7 +989,11 @@ class RayPPOTrainer:
         current_batch_dict = first_batch_dict
 
         while not step.is_complete:
-            raw_batch = DataProto.from_single_dict(current_batch_dict)
+            raw_batch = (
+                current_batch_dict
+                if isinstance(current_batch_dict, DataProto)
+                else DataProto.from_single_dict(current_batch_dict)
+            )
             raw_batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
             prepared = step.prepare_round(raw_batch)
             entropy_result = None
@@ -1007,8 +1017,9 @@ class RayPPOTrainer:
 
         result = step.finalize()
         if rollout_replicas_sleeping:
-            # Actor parameters do not change during selection; restore the already-synced vLLM weights.
-            self.checkpoint_manager.wake_up_replicas()
+            # Sleep may invalidate an IPC-loaded vLLM weight mapping after dummy initialization.
+            # Reuse the canonical actor-to-rollout sync before generation instead of trusting wake alone.
+            self.checkpoint_manager.update_weights(global_steps=self.global_steps)
         return result, step.stage1_selector
 
     def _interpret_hive_post_rollout(
@@ -1068,12 +1079,15 @@ class RayPPOTrainer:
         generation_input = gen_batch.repeat(repeat_times=rollout_n, interleave=True)
         if curr_step_profile:
             self.llm_server_manager.start_profile()
+        rollout_started_at = time.monotonic()
         generation_output = self.async_rollout_manager.generate_sequences(generation_input)
         self.checkpoint_manager.sleep_replicas()
+        rollout_wall_seconds = time.monotonic() - rollout_started_at
         if curr_step_profile:
             self.llm_server_manager.stop_profile()
 
         rollout_timing = dict(generation_output.meta_info.get("timing", {}))
+        rollout_timing["rollout_wall_seconds"] = rollout_wall_seconds
         generation_output.meta_info.pop("timing", None)
         batch = prompt_batch.repeat(repeat_times=rollout_n, interleave=True)
         batch = batch.union(generation_output)
@@ -1087,10 +1101,12 @@ class RayPPOTrainer:
             if "image_grid_thw" in multi_modal_input:
                 images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
         batch.meta_info["images_seqlens"] = images_seqlens_all
+        reward_started_at = time.monotonic()
         if self.use_rm and "rm_scores" not in batch.batch:
             batch_reward = self._compute_reward_colocate(batch)
             batch = batch.union(batch_reward)
         reward_tensor, reward_extra_infos = extract_reward(batch)
+        rollout_timing["reward_wall_seconds"] = time.monotonic() - reward_started_at
         return batch, reward_tensor, reward_extra_infos, rollout_timing
 
     def _commit_hive_step(
@@ -1615,7 +1631,18 @@ class RayPPOTrainer:
         local_mkdir_safe(local_global_step_folder)
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         dataloader_state_dict = self.train_dataloader.state_dict()
-        torch.save(dataloader_state_dict, dataloader_local_path)
+        if self.hive_selector_state is not None:
+            if self._hive_data_stream is None:
+                raise RuntimeError("HIVE data stream is not initialized at checkpoint save")
+            dataloader_checkpoint = {
+                "format": HIVE_DATALOADER_CHECKPOINT_FORMAT,
+                "global_step": self.global_steps,
+                "dataloader_state": dataloader_state_dict,
+                "hive_data_stream_state": self._hive_data_stream.state_dict(),
+            }
+        else:
+            dataloader_checkpoint = dataloader_state_dict
+        torch.save(dataloader_checkpoint, dataloader_local_path)
 
         if self.hive_selector_state is not None:
             if self.hive_selector_state.global_step != self.global_steps:
@@ -1630,6 +1657,8 @@ class RayPPOTrainer:
                 )
             self.hive_selector_state.save_checkpoint(local_global_step_folder)
             self._hive_compute_counters.save_checkpoint(local_global_step_folder)
+
+        self._budget_tracker.save_checkpoint(local_global_step_folder)
 
         # latest checkpointed iteration tracker (for atomic usage)
         if (
@@ -1699,20 +1728,55 @@ class RayPPOTrainer:
         # TODO: from remote not implemented yet
         dataloader_local_path = os.path.join(global_step_folder, "data.pt")
         if os.path.exists(dataloader_local_path):
-            steps_per_epoch = len(self.train_dataloader)
-            at_epoch_boundary = steps_per_epoch > 0 and self.global_steps % steps_per_epoch == 0
-            if at_epoch_boundary:
-                print(
-                    f"Skipping dataloader state restore: global_steps={self.global_steps} "
-                    f"is at an epoch boundary (steps_per_epoch={steps_per_epoch}). "
-                    f"The saved state marks the dataloader as exhausted. "
-                    f"Next epoch will iterate from scratch."
-                )
+            dataloader_checkpoint = torch.load(dataloader_local_path, weights_only=False)
+            is_hive_envelope = (
+                isinstance(dataloader_checkpoint, dict)
+                and dataloader_checkpoint.get("format") == HIVE_DATALOADER_CHECKPOINT_FORMAT
+            )
+            if is_hive_envelope:
+                stream_global_step = dataloader_checkpoint.get("global_step")
+                if stream_global_step != self.global_steps:
+                    raise ValueError(
+                        f"HIVE dataloader global_step {stream_global_step!r} does not match "
+                        f"trainer checkpoint step {self.global_steps}"
+                    )
+                if self.hive_selector_state is None:
+                    raise ValueError("cannot restore a HIVE dataloader checkpoint with HIVE disabled")
+                self.train_dataloader.load_state_dict(dataloader_checkpoint["dataloader_state"])
+                stream_state = dataloader_checkpoint.get("hive_data_stream_state")
+                if not isinstance(stream_state, dict):
+                    raise ValueError("HIVE dataloader checkpoint is missing data stream state")
+                self._restored_hive_data_stream_state = stream_state
+            elif self.hive_selector_state is not None:
+                print("Warning: restoring legacy HIVE checkpoint without epoch-spanning stream state")
+                self.train_dataloader.load_state_dict(dataloader_checkpoint)
             else:
-                dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
-                self.train_dataloader.load_state_dict(dataloader_state_dict)
+                steps_per_epoch = len(self.train_dataloader)
+                at_epoch_boundary = steps_per_epoch > 0 and self.global_steps % steps_per_epoch == 0
+                if at_epoch_boundary:
+                    print(
+                        f"Skipping dataloader state restore: global_steps={self.global_steps} "
+                        f"is at an epoch boundary (steps_per_epoch={steps_per_epoch}). "
+                        f"The saved state marks the dataloader as exhausted. "
+                        f"Next epoch will iterate from scratch."
+                    )
+                else:
+                    self.train_dataloader.load_state_dict(dataloader_checkpoint)
         else:
             print(f"Warning: No dataloader state found at {dataloader_local_path}, will start from scratch")
+
+        budget_checkpoint_missing = False
+        try:
+            self._budget_tracker = RolloutBudgetTracker.load_checkpoint(
+                global_step_folder, expected_optimizer_steps=self.global_steps
+            )
+        except FileNotFoundError:
+            budget_checkpoint_missing = True
+            print(
+                "Warning: rollout budget counters are absent from this checkpoint; "
+                "recovering the counters available from legacy state"
+            )
+            self._budget_tracker = RolloutBudgetTracker(optimizer_steps=self.global_steps)
 
         if self.hive_selector_state is not None:
             restored_hive_state = HiveSelectorState.load_checkpoint(global_step_folder)
@@ -1731,6 +1795,55 @@ class RayPPOTrainer:
             except FileNotFoundError:
                 print("Warning: HIVE compute counters are absent from this checkpoint; resetting them to zero")
                 self._hive_compute_counters = HiveComputeCounters(global_step=self.global_steps)
+
+            if budget_checkpoint_missing:
+                hive_counters = self._hive_compute_counters
+                self._budget_tracker.candidate_prompt_groups = hive_counters.generated_prompt_groups
+                self._budget_tracker.accepted_prompt_groups = hive_counters.effective_prompt_groups
+                self._budget_tracker.rejected_prompt_groups = (
+                    hive_counters.generated_prompt_groups - hive_counters.effective_prompt_groups
+                )
+                self._budget_tracker.responses_generated = hive_counters.generated_responses
+                self._budget_tracker.response_tokens_generated = hive_counters.generated_response_tokens
+                self._budget_tracker.rollout_tokens_generated = hive_counters.generated_response_tokens
+                self._budget_tracker.effective_prompt_groups = hive_counters.effective_prompt_groups
+                self._budget_tracker.effective_responses = hive_counters.effective_responses
+                self._budget_tracker.effective_response_tokens = hive_counters.effective_response_tokens
+                print(
+                    "Warning: legacy HIVE checkpoint restored shared generated/effective compute counters; "
+                    "historical prompt-token and wall-clock counters restart at the resume boundary"
+                )
+
+
+    def _initialize_hive_data_stream_for_fit(self) -> None:
+        if self.hive_selector_state is None:
+            return
+        raw_batch_size = int(
+            self.config.data.get("gen_batch_size", self.config.data.train_batch_size)
+        )
+        self._hive_data_stream = HiveEpochSpanningDataStream(
+            self.train_dataloader,
+            total_epochs=int(self.config.trainer.total_epochs),
+            raw_batch_size=raw_batch_size,
+            state=self._restored_hive_data_stream_state,
+        )
+        self._restored_hive_data_stream_state = None
+
+    def _iter_hive_optimizer_steps(self):
+        if self._hive_data_stream is None:
+            raise RuntimeError("HIVE epoch-spanning data stream is not initialized")
+        while True:
+            raw_batch_iterator = self._hive_data_stream.begin_step()
+            try:
+                first_batch = next(raw_batch_iterator)
+            except StopIteration as exc:
+                raise HiveTopupDataExhaustedError(
+                    "HIVE raw prompt stream exhausted before total_training_steps was reached: "
+                    f"global_step={self.global_steps}, total_training_steps={self.total_training_steps}, "
+                    f"epoch={self._hive_data_stream.epoch_index}, "
+                    f"total_epochs={self._hive_data_stream.total_epochs}"
+                ) from exc
+            yield self._hive_data_stream.epoch_index, first_batch, raw_batch_iterator
 
     def _start_profiling(self, do_profile: bool) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
@@ -2020,7 +2133,13 @@ class RayPPOTrainer:
         self._load_checkpoint()
         self.checkpoint_manager.update_weights(self.global_steps)
 
-        current_epoch = self.global_steps // len(self.train_dataloader)
+        if self.hive_selector_state is None:
+            current_epoch = self.global_steps // len(self.train_dataloader)
+        else:
+            self._initialize_hive_data_stream_for_fit()
+            if self._hive_data_stream is None:
+                raise RuntimeError("HIVE data stream initialization failed")
+            current_epoch = self._hive_data_stream.epoch_index
 
         SkipManager.init(self.config)
 
@@ -2030,6 +2149,10 @@ class RayPPOTrainer:
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             val_metrics.update(self._update_best_checkpoint_metadata(val_metrics))
+            val_metrics["training/global_step"] = float(self.global_steps)
+            val_metrics.update(
+                self._budget_tracker.snapshot(n_gpus=self.resource_pool_manager.get_n_gpus())
+            )
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
@@ -2056,9 +2179,22 @@ class RayPPOTrainer:
         )
         next_step_profile = False
 
-        for epoch in range(current_epoch, self.config.trainer.total_epochs):
-            raw_batch_iterator = iter(self.train_dataloader)
-            for batch_dict in raw_batch_iterator:
+        epoch_sources = (
+            (None,)
+            if self.hive_selector_state is not None
+            else range(current_epoch, self.config.trainer.total_epochs)
+        )
+        for epoch_source in epoch_sources:
+            if epoch_source is None:
+                step_sources = self._iter_hive_optimizer_steps()
+            else:
+                epoch = int(epoch_source)
+                raw_batch_iterator = iter(self.train_dataloader)
+                step_sources = (
+                    (epoch, batch_dict, raw_batch_iterator) for batch_dict in raw_batch_iterator
+                )
+            for epoch, batch_dict, raw_batch_iterator in step_sources:
+                iteration_started_at = time.monotonic()
                 if hasattr(self.actor_rollout_wg, "async_calls_finalize_fn_exec"):
                     self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=False)
                 metrics = {}
@@ -2071,6 +2207,7 @@ class RayPPOTrainer:
                 hive_generated_uids = None
                 hive_generated_raw_correctness = None
                 hive_generated_response_lengths = None
+                hive_pre_rollout_results = []
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -2092,6 +2229,7 @@ class RayPPOTrainer:
                     hive_candidate_prompt_ids = tuple(
                         np.asarray(batch.non_tensor_batch["prompt_id"], dtype=object).tolist()
                     )
+                    hive_pre_rollout_results.append(hive_result)
 
                 # add uid to batch
                 batch.non_tensor_batch["uid"] = np.array(
@@ -2263,6 +2401,7 @@ class RayPPOTrainer:
                                     ) from exc
                                 if topup_selector is not hive_stage1_selector:
                                     raise RuntimeError("HIVE top-up replaced the frozen step selector")
+                                hive_pre_rollout_results.append(topup_pre_result)
                                 topup_prompt_ids = tuple(
                                     np.asarray(
                                         topup_pre_result.selected_batch.non_tensor_batch["prompt_id"],
@@ -2333,6 +2472,15 @@ class RayPPOTrainer:
                                 metrics[f"hive/topup_round_{round_index}/stage2_kept"] = float(
                                     topup_pre_result.metrics["hive/stage2_kept"]
                                 )
+                                stage1_latency = float(
+                                    topup_pre_result.metrics["hive/stage1_latency_seconds"]
+                                )
+                                metrics[f"hive/topup_round_{round_index}/stage1_latency_seconds"] = (
+                                    stage1_latency
+                                )
+                                metrics["hive/stage1_latency_seconds"] = float(
+                                    metrics.get("hive/stage1_latency_seconds", 0.0)
+                                ) + stage1_latency
                                 entropy_latency = float(
                                     topup_pre_result.metrics["hive/stage2_entropy_latency_seconds"]
                                 )
@@ -2362,6 +2510,9 @@ class RayPPOTrainer:
                         hive_generated_raw_correctness = generated_raw_correctness
                         hive_generated_response_lengths = generated_response_lengths
                         metrics.update(hive_final_result.metrics)
+                        metrics.update(
+                            aggregate_pre_rollout_selection_metrics(hive_pre_rollout_results)
+                        )
                         metrics.update(compute_counter_metrics)
                         diagnostics = hive_final_result.diagnostics
                         metrics.update(
@@ -2371,6 +2522,13 @@ class RayPPOTrainer:
                                 responses_generated_step=diagnostics.generated_responses,
                                 prompt_tokens_generated_step=diagnostics.generated_prompt_tokens,
                                 response_tokens_generated_step=diagnostics.generated_response_tokens,
+                                effective_prompt_groups_step=diagnostics.effective_prompt_groups,
+                                effective_responses_step=diagnostics.effective_responses,
+                                effective_response_tokens_step=diagnostics.effective_response_tokens,
+                                rollout_time_seconds_step=float(
+                                    timing_raw.get("gen", 0.0)
+                                    + timing_raw.get("topup/rollout_wall_seconds", 0.0)
+                                ),
                                 optimizer_steps_step=1,
                                 n_gpus=self.resource_pool_manager.get_n_gpus(),
                             )
@@ -2663,6 +2821,10 @@ class RayPPOTrainer:
                             )
                             metrics.update(filter_group_metrics)
                             accepted_group_count = _count_prompt_groups(batch)
+                            accepted_rollouts = len(batch)
+                            accepted_response_tokens = int(
+                                batch.batch["response_mask"].sum().detach().cpu().item()
+                            )
 
                         if hive_post_result is None:
                             n_gpus_for_budget = self.resource_pool_manager.get_n_gpus()
@@ -2673,6 +2835,10 @@ class RayPPOTrainer:
                                     responses_generated_step=candidate_batch_size,
                                     prompt_tokens_generated_step=candidate_prompt_tokens,
                                     response_tokens_generated_step=candidate_response_tokens,
+                                    effective_prompt_groups_step=accepted_group_count,
+                                    effective_responses_step=accepted_rollouts,
+                                    effective_response_tokens_step=accepted_response_tokens,
+                                    rollout_time_seconds_step=float(timing_raw.get("gen", 0.0)),
                                     optimizer_steps_step=1,
                                     n_gpus=n_gpus_for_budget,
                                 )
@@ -2842,8 +3008,34 @@ class RayPPOTrainer:
                             metrics[f"gdpo/{key}/max"] = float(np.max(vals))
                             metrics[f"gdpo/{key}/min"] = float(np.min(vals))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                metrics.update(
+                    compute_section18_timing_metrics(
+                        timing_raw=timing_raw,
+                        stage1_seconds=float(metrics.get("hive/stage1_latency_seconds", 0.0)),
+                        stage2_entropy_seconds=float(
+                            metrics.get("hive/stage2_entropy_latency_seconds", 0.0)
+                        ),
+                        iteration_total_seconds=time.monotonic() - iteration_started_at,
+                    )
+                )
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
+                budget_snapshot = self._budget_tracker.snapshot(n_gpus=n_gpus)
+                if self._hive_compute_counters is not None:
+                    for compute_key in (
+                        "compute/generated_prompt_groups",
+                        "compute/generated_responses",
+                        "compute/generated_response_tokens",
+                        "compute/effective_prompt_groups",
+                        "compute/effective_responses",
+                        "compute/effective_response_tokens",
+                    ):
+                        if float(metrics[compute_key]) != float(budget_snapshot[compute_key]):
+                            raise RuntimeError(
+                                f"HIVE/shared compute accounting mismatch for {compute_key}: "
+                                f"{metrics[compute_key]} != {budget_snapshot[compute_key]}"
+                            )
+                metrics.update(budget_snapshot)
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
                 # compute variance proxy metrics
                 gradient_norm = metrics.get("actor/grad_norm", None)

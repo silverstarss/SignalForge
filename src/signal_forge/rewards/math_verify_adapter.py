@@ -8,6 +8,7 @@ flat dict format consumed by this repository's NaiveRewardManager.
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 import math
 import os
 import time
@@ -60,11 +61,24 @@ def _verify(source: str, solution_str: str, ground_truth: str):
     raise AssertionError(f"Unexpected canonical source: {source}")
 
 
-def _result_payload(source: str, solution_str: str, ground_truth: str) -> dict[str, Any]:
+def _result_payload(
+    source: str,
+    solution_str: str,
+    ground_truth: str,
+    expected_multiple_answers: tuple[str, ...] = (),
+) -> dict[str, Any]:
     result = _verify(source=source, solution_str=solution_str, ground_truth=ground_truth)
     extraction = result.extraction
     extracted = bool(extraction.extraction_ok)
     correct = bool(result.is_correct)
+    if expected_multiple_answers:
+        from signal_forge.data.validation_decontamination import olympiad_multiple_answers_equal
+
+        correct = olympiad_multiple_answers_equal(
+            solution_str,
+            expected_multiple_answers,
+            verifier=_latex_answer_equivalent,
+        )
     reward = 1.0 if correct else 0.1 if extracted else 0.0
     raw_correctness = float(correct)
     return {
@@ -84,9 +98,44 @@ def _result_payload(source: str, solution_str: str, ground_truth: str) -> dict[s
     }
 
 
-def _verify_serializable(source: str, solution_str: str, ground_truth: str) -> dict[str, Any]:
+def _latex_answer_equivalent(prediction: str, gold: str) -> bool:
+    result = _latex_verifier().verify(
+        response=f"\\boxed{{{prediction}}}",
+        ground_truth=f"\\boxed{{{gold}}}",
+    )
+    return bool(result.is_correct)
+
+
+def _expected_multiple_answers(extra_info: dict[str, Any] | None) -> tuple[str, ...]:
+    if not extra_info or not bool(extra_info.get("is_multiple_answer", False)):
+        return ()
+    values = extra_info.get("multiple_answers")
+    if values is None:
+        encoded = extra_info.get("multiple_answers_json")
+        if not isinstance(encoded, str):
+            raise ValueError("multiple-answer validation row is missing multiple_answers_json")
+        values = json.loads(encoded)
+    if not isinstance(values, (list, tuple)) or not values:
+        raise ValueError("multiple_answers must be a non-empty list")
+    normalized = tuple(str(value).strip() for value in values)
+    if any(not value for value in normalized):
+        raise ValueError("multiple_answers contains an empty value")
+    return normalized
+
+
+def _verify_serializable(
+    source: str,
+    solution_str: str,
+    ground_truth: str,
+    expected_multiple_answers: tuple[str, ...] | list[str] = (),
+) -> dict[str, Any]:
     """Child-process entrypoint. RewardScope itself keeps parsing_timeout=None."""
-    return _result_payload(source=source, solution_str=solution_str, ground_truth=ground_truth)
+    return _result_payload(
+        source=source,
+        solution_str=solution_str,
+        ground_truth=ground_truth,
+        expected_multiple_answers=tuple(expected_multiple_answers),
+    )
 
 
 def _env_float(name: str) -> float | None:
@@ -148,6 +197,7 @@ def compute_score(
         raise ValueError("frozen HIVE fallback score must be 0.0")
     started = time.perf_counter()
     source = _canonical_source(data_source, extra_info)
+    expected_multiple_answers = _expected_multiple_answers(extra_info)
     solution_text = str(solution_str)
     ground_truth_text = str(ground_truth)
     input_chars = len(solution_text) + len(ground_truth_text)
@@ -177,7 +227,12 @@ def compute_score(
             raise ValueError("verify_timeout_mode='process' requires verify_timeout_seconds > 0")
         isolated = call_with_hard_timeout(
             "signal_forge.rewards.math_verify_adapter:_verify_serializable",
-            {"source": source, "solution_str": solution_text, "ground_truth": ground_truth_text},
+            {
+                "source": source,
+                "solution_str": solution_text,
+                "ground_truth": ground_truth_text,
+                "expected_multiple_answers": expected_multiple_answers,
+            },
             timeout_seconds=float(timeout_seconds),
         )
         if isolated.ok:
@@ -205,7 +260,12 @@ def compute_score(
                 detail=f"{isolated.exception_type}: {isolated.exception_message}",
             )
     elif timeout_mode == "inline":
-        payload = _result_payload(source=source, solution_str=solution_text, ground_truth=ground_truth_text)
+        payload = _result_payload(
+            source=source,
+            solution_str=solution_text,
+            ground_truth=ground_truth_text,
+            expected_multiple_answers=expected_multiple_answers,
+        )
     else:
         raise ValueError(f"Unsupported verify_timeout_mode: {verify_timeout_mode!r}")
 

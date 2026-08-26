@@ -1,6 +1,12 @@
 """HIVE selector infrastructure."""
 
 from signal_forge.hive.actor_rpc import ActorEntropyCallDiagnostics, compute_prompt_entropy_rpc
+from signal_forge.hive.data_stream import (
+    HIVE_DATALOADER_CHECKPOINT_FORMAT,
+    HIVE_DATA_STREAM_STATE_VERSION,
+    HiveEpochSpanningDataStream,
+    HiveStepRawBatchIterator,
+)
 from signal_forge.hive.identity import PromptIdentityError, attach_stable_prompt_ids, extract_stable_prompt_ids
 from signal_forge.hive.prompt_preprocessing import (
     CanonicalHivePrompt,
@@ -32,6 +38,7 @@ from signal_forge.hive.pre_rollout import (
     HivePreRolloutRoundResult,
     HivePreRolloutStep,
     HivePreRolloutStepResult,
+    aggregate_pre_rollout_selection_metrics,
 )
 from signal_forge.hive.stage1 import (
     ExplorationControllerConfig,
@@ -90,10 +97,13 @@ __all__ = [
     "ExplorationUpdate",
     "EntropyScoredPrompt",
     "HIVE_COMPUTE_COUNTERS_FILENAME",
+    "HIVE_DATALOADER_CHECKPOINT_FORMAT",
+    "HIVE_DATA_STREAM_STATE_VERSION",
     "HIVE_STATE_FILENAME",
     "HiveSelectorSnapshot",
     "HivePromptPreprocessor",
     "HiveComputeCounters",
+    "HiveEpochSpanningDataStream",
     "HiveAdaptiveTopupAccumulator",
     "HiveAdaptiveTopupConfig",
     "HiveAdaptiveTopupEstimate",
@@ -104,6 +114,7 @@ __all__ = [
     "HivePostRolloutInterpreter",
     "HivePostRolloutResult",
     "HiveStepPendingCommit",
+    "HiveStepRawBatchIterator",
     "HiveTopupAcquisitionDiagnostics",
     "HiveTopupDataExhaustedError",
     "HiveTopupError",
@@ -139,6 +150,7 @@ __all__ = [
     "Stage2PromptRecord",
     "Stage2Selector",
     "ZeroVarianceType",
+    "aggregate_pre_rollout_selection_metrics",
     "apply_exploration_update",
     "attach_stable_prompt_ids",
     "classify_zero_variance",
