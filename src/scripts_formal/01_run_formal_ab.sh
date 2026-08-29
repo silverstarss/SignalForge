@@ -117,8 +117,8 @@ export TEST_FREQ=50
 export LOG_VAL_GENERATIONS=0
 export VALIDATION_DUMP_MAX_RECORDS=1902
 export HIVE_ROUND_DUMP_ENABLED=False
-export MAX_ACTOR_CKPT_TO_KEEP=1
-export MAX_CRITIC_CKPT_TO_KEEP=1
+export MAX_ACTOR_CKPT_TO_KEEP=6
+export MAX_CRITIC_CKPT_TO_KEEP=6
 export RESUME_MODE=${RESUME_MODE:-disable}
 
 # Formal runs fail on verifier infrastructure errors instead of converting them

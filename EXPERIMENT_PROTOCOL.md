@@ -409,17 +409,17 @@ Checkpoint policy is frozen:
 
 ```text
 save steps = 50, 100, 150, 200, 250, 300
-server retention = latest recoverable checkpoint only
-final retained artifacts = best checkpoint + final checkpoint
+server retention during each run = all six scheduled checkpoints
+max actor/critic checkpoints to keep = 6
+minimum archived artifacts after review = best checkpoint + final checkpoint
 ```
 
-Because the server data disk is limited, each newly identified best checkpoint
-must be archived to the external 2 TB storage before a later checkpoint can
-evict it. The step-300 checkpoint is the final checkpoint and must also be
-archived. `best_checkpoint.json`, resolved config, logs, validation dumps,
-selector state, common compute counters, and HIVE compute counters accompany
-the archived checkpoints. Resume must preserve all three global-step values
-and must not duplicate committed visits.
+No scheduled checkpoint is automatically evicted during the 300-step run.
+Cleanup may occur only after the run is complete, validation results have been
+reviewed, and the required artifacts have been archived. `best_checkpoint.json`,
+resolved config, logs, validation dumps, selector state, common compute counters,
+and HIVE compute counters accompany the archived checkpoints. Resume must
+preserve all three global-step values and must not duplicate committed visits.
 
 Verifier infrastructure policy is fail-fast:
 
