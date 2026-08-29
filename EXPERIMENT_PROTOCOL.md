@@ -421,15 +421,37 @@ resolved config, logs, validation dumps, selector state, common compute counters
 and HIVE compute counters accompany the archived checkpoints. Resume must
 preserve all three global-step values and must not duplicate committed visits.
 
-Verifier infrastructure policy is fail-fast:
+Verifier infrastructure policy, amended 2026-08-29 after the Formal A recovery incident:
 
 ```text
 process-isolated timeout = 120 seconds
-verify_timeout_fallback = false
+verify_timeout_fallback = true only for IsolatedCallResult.timed_out
+timeout fallback reward = 0.0
+all non-timeout exceptions = fail-fast
 ```
 
-A parser timeout or verifier exception aborts the run; it must not be silently
-converted into an extraction-failure reward of 0.0.
+The published training run completed optimizer step 140, then one Math-Verify
+child exceeded the 120-second hard deadline while scoring the next rollout. The
+first 140 completed steps had zero parser timeouts, fallbacks, and verifier
+exceptions across 35,840 responses. A hard timeout is now treated as a distinct
+infrastructure fallback: the response receives reward 0.0 with
+`failure_reason=parse_timeout`, `parser_timeout=true`, and `fallback_used=true`.
+This does not change the ordinary three-state reward semantics. Input-length
+guards, child-process failures, parser exceptions, and verifier exceptions remain
+fail-fast.
+
+Every timeout is also appended to the run-local
+`logs/verifier_timeouts.jsonl`, including stable prompt ID, source, deadline,
+elapsed time, full response, response hash, and ground truth. Aggregate timeout
+and fallback rates remain in the normal metrics. This policy applies identically
+to Formal A and Formal B.
+
+Formal A recovery resumes from the complete scheduled `global_step_100`
+checkpoint. Steps after 100 are recomputed; the abandoned partial step publishes
+no optimizer update. Resume must restore and validate `best_checkpoint.json`
+before validation continues. A null checkpoint path is valid when the pretrained
+step-0 model remains best; the metric value and step must still be restored so a
+worse post-resume validation cannot replace it.
 
 
 ---

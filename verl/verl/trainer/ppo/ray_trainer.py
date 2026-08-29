@@ -61,13 +61,14 @@ from signal_forge.hive import (
     validate_hive_prompt_preprocessing_scope,
 )
 from signal_forge.observability import (
-    append_validation_reward_extra_info,
     RolloutBudgetTracker,
+    append_validation_reward_extra_info,
     compute_group_metrics,
     compute_length_metrics,
     compute_reward_extra_metrics,
     compute_section18_timing_metrics,
     compute_validation_alias_metrics,
+    load_best_checkpoint_metadata,
 )
 
 from verl import DataProto
@@ -1709,6 +1710,27 @@ class RayPPOTrainer:
 
         print(f"Setting global step to {self.global_steps}")
         print(f"Resuming from {global_step_folder}")
+
+        checkpoint_root = os.path.dirname(os.path.normpath(global_step_folder))
+        best_metadata = load_best_checkpoint_metadata(
+            checkpoint_root,
+            expected_metric_name=self.config.trainer.get("best_checkpoint_metric", "val/pass_at_1"),
+            resume_global_step=self.global_steps,
+        )
+        if best_metadata is None:
+            print(
+                "Warning: best_checkpoint.json is absent; best-validation state "
+                "will restart at the resume boundary"
+            )
+        else:
+            self._best_validation_metric = best_metadata.metric_value
+            self._best_validation_step = best_metadata.global_step
+            self._best_checkpoint_path = best_metadata.checkpoint_path
+            print(
+                "Restored best validation metadata: "
+                f"step={best_metadata.global_step}, metric={best_metadata.metric_name}, "
+                f"value={best_metadata.metric_value}, checkpoint={best_metadata.checkpoint_path}"
+            )
 
         actor_path = os.path.join(global_step_folder, "actor")
         critic_path = os.path.join(global_step_folder, str(Role.Critic))

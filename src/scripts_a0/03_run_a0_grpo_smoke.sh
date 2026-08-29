@@ -179,6 +179,10 @@ raw_rollouts_per_step=${RAW_ROLLOUTS_PER_STEP}
 raw_rollouts_total=${RAW_ROLLOUTS_TOTAL}
 raw_rollout_tokens_budget_upper_bound=$((RAW_ROLLOUTS_TOTAL * MAX_RESPONSE_LENGTH))
 target_response_tokens=${TARGET_RESPONSE_TOKENS:-0}
+verify_timeout_mode=${VERIFY_TIMEOUT_MODE:-process}
+verify_timeout_seconds=${VERIFY_TIMEOUT_SECONDS:-10}
+verify_timeout_fallback=${VERIFY_TIMEOUT_FALLBACK:-True}
+verify_timeout_diagnostics_path=${VERIFY_TIMEOUT_DIAGNOSTICS_PATH:-${LOG_DIR}/verifier_timeouts.jsonl}
 dynamic_sampling=${FILTER_GROUPS_ENABLE:-False}
 output_dir=${OUT_DIR}
 checkpoint_dir=${CKPT_DIR}
@@ -275,6 +279,7 @@ REWARD=(
     +reward.custom_reward_function.reward_kwargs.verify_timeout_seconds=${VERIFY_TIMEOUT_SECONDS:-10}
     +reward.custom_reward_function.reward_kwargs.verify_timeout_fallback=${VERIFY_TIMEOUT_FALLBACK:-True}
     +reward.custom_reward_function.reward_kwargs.verify_timeout_fallback_score=${VERIFY_TIMEOUT_FALLBACK_SCORE:-0.0}
+    +reward.custom_reward_function.reward_kwargs.verify_timeout_diagnostics_path="${VERIFY_TIMEOUT_DIAGNOSTICS_PATH:-${LOG_DIR}/verifier_timeouts.jsonl}"
     +reward.custom_reward_function.reward_kwargs.verifier_max_input_chars=${VERIFIER_MAX_INPUT_CHARS:-200000}
 )
 

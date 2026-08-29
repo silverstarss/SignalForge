@@ -1,5 +1,9 @@
 """Small online observability helpers for Signal Forge training."""
 
+from signal_forge.observability.best_checkpoint import (
+    BestCheckpointMetadata,
+    load_best_checkpoint_metadata,
+)
 from signal_forge.observability.budget import RolloutBudgetTracker, count_prompt_groups
 from signal_forge.observability.metrics import (
     append_validation_reward_extra_info,
@@ -11,6 +15,8 @@ from signal_forge.observability.metrics import (
 )
 
 __all__ = [
+    "BestCheckpointMetadata",
+    "load_best_checkpoint_metadata",
     "RolloutBudgetTracker",
     "count_prompt_groups",
     "append_validation_reward_extra_info",

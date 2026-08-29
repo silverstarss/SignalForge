@@ -7,11 +7,12 @@ flat dict format consumed by this repository's NaiveRewardManager.
 
 from __future__ import annotations
 
-from functools import lru_cache
+import hashlib
 import json
 import math
 import os
 import time
+from functools import lru_cache
 from typing import Any
 
 from signal_forge.rewards.process_timeout import call_with_hard_timeout
@@ -176,6 +177,40 @@ def _fallback_payload(*, source: str, reason: str, fallback_score: float, detail
     }
 
 
+def _write_timeout_diagnostic(
+    path: str | None,
+    *,
+    source: str,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: dict[str, Any] | None,
+    timeout_seconds: float,
+    elapsed_ms: float,
+) -> None:
+    if not path:
+        return
+    destination = os.path.abspath(os.path.expanduser(path))
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    payload = {
+        "event": "math_verify_timeout",
+        "recorded_at_unix": time.time(),
+        "prompt_id": str((extra_info or {}).get("prompt_id", "")),
+        "data_source": source,
+        "timeout_seconds": float(timeout_seconds),
+        "elapsed_ms": float(elapsed_ms),
+        "solution_chars": len(solution_str),
+        "solution_sha256": hashlib.sha256(solution_str.encode("utf-8")).hexdigest(),
+        "solution_str": solution_str,
+        "ground_truth": ground_truth,
+    }
+    encoded = (json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(destination, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        os.write(fd, encoded)
+    finally:
+        os.close(fd)
+
+
 def compute_score(
     data_source: str,
     solution_str: str,
@@ -185,6 +220,7 @@ def compute_score(
     verify_timeout_seconds: float | None = None,
     verify_timeout_fallback: bool | None = None,
     verify_timeout_fallback_score: float = 0.0,
+    verify_timeout_diagnostics_path: str | None = None,
     verifier_max_input_chars: int | None = None,
 ) -> dict[str, Any]:
     """Return the frozen three-outcome Math-Verify reward and diagnostics for veRL.
@@ -214,14 +250,7 @@ def compute_score(
     )
 
     if verifier_max_input_chars is not None and input_chars > int(verifier_max_input_chars):
-        if not fallback_enabled:
-            raise ValueError(f"Verifier input too long: {input_chars} > {verifier_max_input_chars} chars")
-        payload = _fallback_payload(
-            source=source,
-            reason="input_too_long",
-            fallback_score=verify_timeout_fallback_score,
-            detail=f"{input_chars} > {verifier_max_input_chars}",
-        )
+        raise ValueError(f"Verifier input too long: {input_chars} > {verifier_max_input_chars} chars")
     elif timeout_mode == "process":
         if timeout_seconds is None or timeout_seconds <= 0:
             raise ValueError("verify_timeout_mode='process' requires verify_timeout_seconds > 0")
@@ -238,6 +267,15 @@ def compute_score(
         if isolated.ok:
             payload = dict(isolated.value)
         elif isolated.timed_out:
+            _write_timeout_diagnostic(
+                verify_timeout_diagnostics_path,
+                source=source,
+                solution_str=solution_text,
+                ground_truth=ground_truth_text,
+                extra_info=extra_info,
+                timeout_seconds=float(timeout_seconds),
+                elapsed_ms=isolated.elapsed_ms,
+            )
             if not fallback_enabled:
                 raise TimeoutError(f"Math-Verify process timed out after {timeout_seconds}s")
             payload = _fallback_payload(
@@ -247,17 +285,9 @@ def compute_score(
                 detail=f"deadline_seconds={timeout_seconds}",
             )
         else:
-            reason = "parse_exception" if isolated.exception_type else "verifier_internal_error"
-            if not fallback_enabled:
-                raise RuntimeError(
-                    "Math-Verify process failed: "
-                    f"{isolated.exception_type}: {isolated.exception_message}\n{isolated.traceback_text}"
-                )
-            payload = _fallback_payload(
-                source=source,
-                reason=reason,
-                fallback_score=verify_timeout_fallback_score,
-                detail=f"{isolated.exception_type}: {isolated.exception_message}",
+            raise RuntimeError(
+                "Math-Verify process failed: "
+                f"{isolated.exception_type}: {isolated.exception_message}\n{isolated.traceback_text}"
             )
     elif timeout_mode == "inline":
         payload = _result_payload(

@@ -121,12 +121,13 @@ export MAX_ACTOR_CKPT_TO_KEEP=6
 export MAX_CRITIC_CKPT_TO_KEEP=6
 export RESUME_MODE=${RESUME_MODE:-disable}
 
-# Formal runs fail on verifier infrastructure errors instead of converting them
-# into extraction-failure rewards.
+# Only a hard process timeout is converted to the frozen 0.0 infrastructure
+# fallback. All other verifier failures remain fail-fast.
 export VERIFY_TIMEOUT_MODE=process
 export VERIFY_TIMEOUT_SECONDS=120
-export VERIFY_TIMEOUT_FALLBACK=False
+export VERIFY_TIMEOUT_FALLBACK=True
 export VERIFY_TIMEOUT_FALLBACK_SCORE=0.0
+export VERIFY_TIMEOUT_DIAGNOSTICS_PATH="${ROOT_DIR}/artifacts/outputs/${PROJECT_NAME}/${EXPERIMENT_NAME}/logs/verifier_timeouts.jsonl"
 
 export PREFLIGHT_FORMAL=1
 export PREFLIGHT_STRICT=1
