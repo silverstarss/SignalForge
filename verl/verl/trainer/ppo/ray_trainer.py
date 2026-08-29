@@ -61,6 +61,7 @@ from signal_forge.hive import (
     validate_hive_prompt_preprocessing_scope,
 )
 from signal_forge.observability import (
+    append_validation_reward_extra_info,
     RolloutBudgetTracker,
     compute_group_metrics,
     compute_length_metrics,
@@ -1216,14 +1217,11 @@ class RayPPOTrainer:
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
-            reward_extra_infos_dict["reward"].extend(scores)
-            for key, values in reward_extra_info.items():
-                if key not in reward_extra_infos_dict:
-                    reward_extra_infos_dict[key] = []
-                if isinstance(values, np.ndarray):
-                    reward_extra_infos_dict[key].extend(values.tolist())
-                else:
-                    reward_extra_infos_dict[key].extend(values if isinstance(values, list) else [values])
+            append_validation_reward_extra_info(
+                reward_extra_infos_dict,
+                canonical_rewards=scores,
+                reward_extra_info=reward_extra_info,
+            )
 
             # collect num_turns of each prompt
             if "__num_turns__" in test_batch.non_tensor_batch:

@@ -7,7 +7,7 @@ remains the source of truth for offline reports, plots, and pass@k suites.
 from __future__ import annotations
 
 from collections import defaultdict
-from math import sqrt
+from math import isclose, sqrt
 from typing import Iterable
 
 
@@ -64,6 +64,34 @@ def _percentile(sorted_values: list[float], q: float) -> float:
     upper = min(lower + 1, len(sorted_values) - 1)
     weight = pos - lower
     return float(sorted_values[lower] * (1.0 - weight) + sorted_values[upper] * weight)
+
+
+
+def append_validation_reward_extra_info(
+    destination: dict[str, list],
+    *,
+    canonical_rewards: Iterable,
+    reward_extra_info: dict,
+) -> None:
+    """Append one validation batch without duplicating the canonical reward."""
+    rewards = _float_values(canonical_rewards)
+    if "reward" in reward_extra_info:
+        extra_rewards = _float_values(reward_extra_info["reward"])
+        if len(extra_rewards) != len(rewards) or any(
+            not isclose(extra, canonical, rel_tol=0.0, abs_tol=1e-6)
+            for extra, canonical in zip(extra_rewards, rewards, strict=True)
+        ):
+            raise ValueError("reward extra info does not match canonical validation rewards")
+
+    destination.setdefault("reward", []).extend(rewards)
+    for key, values in reward_extra_info.items():
+        if key == "reward":
+            continue
+        if hasattr(values, "tolist"):
+            values = values.tolist()
+        normalized = values if isinstance(values, list) else [values]
+        destination.setdefault(key, []).extend(normalized)
+
 
 
 def compute_reward_extra_metrics(reward_extra_infos: dict) -> dict[str, float]:

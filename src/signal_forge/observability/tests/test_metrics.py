@@ -1,4 +1,5 @@
 from signal_forge.observability import (
+    append_validation_reward_extra_info,
     RolloutBudgetTracker,
     compute_group_metrics,
     compute_length_metrics,
@@ -224,3 +225,37 @@ def test_validation_alias_metrics_omits_formal_mean_for_incomplete_suite():
         {"acc": [1.0, 0.0], "raw_correctness": [1.0, 0.0]},
     )
     assert "val/six_benchmark_mean_accuracy" not in metrics
+
+
+def test_validation_reward_extra_info_deduplicates_matching_reward():
+    destination = {"reward": []}
+
+    append_validation_reward_extra_info(
+        destination,
+        canonical_rewards=[1.0, 0.10000000149, 0.0],
+        reward_extra_info={
+            "reward": [1.0, 0.1, 0.0],
+            "acc": [1.0, 0.0, 0.0],
+            "extracted": [True, True, False],
+        },
+    )
+
+    assert destination == {
+        "reward": [1.0, 0.10000000149, 0.0],
+        "acc": [1.0, 0.0, 0.0],
+        "extracted": [True, True, False],
+    }
+
+
+def test_validation_reward_extra_info_rejects_mismatch_without_mutation():
+    import pytest
+
+    destination = {"reward": [0.1]}
+    with pytest.raises(ValueError, match="does not match"):
+        append_validation_reward_extra_info(
+            destination,
+            canonical_rewards=[1.0],
+            reward_extra_info={"reward": [0.1]},
+        )
+
+    assert destination == {"reward": [0.1]}
