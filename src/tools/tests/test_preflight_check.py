@@ -115,6 +115,24 @@ def test_six_steps_per_epoch_vs_fifty_requested_failure(tmp_path):
     assert "FAIL" in statuses(rep2, "D.steps.epoch_budget")
 
 
+def test_val_only_does_not_require_training_epoch_or_save_test_frequency(tmp_path):
+    cfg = base_cfg(tmp_path)
+    cfg["trainer"].update(
+        {
+            "val_only": True,
+            "save_freq": -1,
+            "test_freq": -1,
+            "total_training_steps": 100,
+        }
+    )
+    rep = pf.Reporter()
+    pf.check_steps(rep, cfg, {"steps_per_epoch": 0})
+
+    assert statuses(rep, "D.steps.epoch_budget") == ["PASS"]
+    assert statuses(rep, "D.steps.save_freq") == ["PASS"]
+    assert statuses(rep, "D.steps.test_freq") == ["PASS"]
+
+
 def test_zero_effective_dataset_rows_after_filtering(tmp_path):
     cfg = base_cfg(tmp_path)
     empty = tmp_path / "empty.parquet"

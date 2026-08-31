@@ -550,13 +550,18 @@ def check_steps(rep: Reporter, cfg: dict[str, Any], dataset: dict[str, Any]) -> 
     total_steps = int(get(cfg, "trainer.total_training_steps", 0) or 0)
     available = total_epochs * steps_per_epoch
     out = {"steps_per_epoch": steps_per_epoch, "total_epochs": total_epochs, "total_training_steps": total_steps, "available_epoch_loop_steps": available}
-    if available < total_steps:
+    val_only = bool(get(cfg, "trainer.val_only", False))
+    if val_only:
+        rep.pass_("D.steps.epoch_budget", "val-only run does not enter the training epoch loop", **out)
+    elif available < total_steps:
         rep.fail("D.steps.epoch_budget", "epoch loop will exhaust before total_training_steps", **out)
     else:
         rep.pass_("D.steps.epoch_budget", "epoch loop can reach total_training_steps", **out)
     for key in ["save_freq", "test_freq"]:
         value = int(get(cfg, f"trainer.{key}", -1) or -1)
-        if value <= 0:
+        if val_only and value <= 0:
+            rep.pass_(f"D.steps.{key}", f"trainer.{key} is correctly disabled for val-only", value=value)
+        elif value <= 0:
             rep.warn(f"D.steps.{key}", f"trainer.{key} is disabled", value=value)
         elif total_steps and value > total_steps:
             rep.warn(f"D.steps.{key}", f"trainer.{key} exceeds requested step count", value=value, total_training_steps=total_steps)
