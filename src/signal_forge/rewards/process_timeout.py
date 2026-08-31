@@ -24,6 +24,16 @@ class IsolatedCallResult:
     exitcode: int | None = None
 
 
+def _join_until_deadline(process: mp.Process, deadline: float) -> bool:
+    """Wait through spurious early ``join`` returns until exit or deadline."""
+    while process.is_alive():
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
+            return False
+        process.join(remaining)
+    return True
+
+
 def _load_function(function_ref: str):
     module_name, sep, func_name = function_ref.partition(":")
     if not sep:
@@ -73,9 +83,9 @@ def call_with_hard_timeout(
     process = ctx.Process(target=_child_entry, args=(result_queue, function_ref, kwargs))
     started = time.perf_counter()
     process.start()
-    process.join(timeout_seconds)
+    completed = _join_until_deadline(process, started + timeout_seconds)
 
-    if process.is_alive():
+    if not completed:
         process.terminate()
         process.join(1.0)
         if process.is_alive():
