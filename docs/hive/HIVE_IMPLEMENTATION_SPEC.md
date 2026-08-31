@@ -1575,11 +1575,15 @@ Log per step:
 
 ```text
 hive/raw_prompts_seen
+hive/seen_prompts_seen
 hive/unseen_prompts_seen
 
 hive/stage1_accepted
 hive/stage1_rejected
 hive/stage1_accept_ratio
+hive/stage1_rejected_easy_history
+hive/stage1_rejected_hard_history
+hive/stage1_rejected_other_history
 
 hive/stage2_input
 hive/stage2_kept
@@ -1664,6 +1668,25 @@ effective_prompt_groups per 1M generated tokens
 ```
 
 This accounting must include discarded rollout groups.
+
+For diagnosing whether scalar three-state variance is merely extraction
+variance rather than correctness learning signal, log both the complete
+generated candidate pool and the final `B_t` training slice:
+
+```text
+candidate/raw_correctness_mixed
+candidate/extraction_only_effective
+training/raw_correctness_mixed
+training/extraction_only_effective
+```
+
+Here `optimization-effective` means scalar reward variance is nonzero,
+`raw-correctness mixed` means a complete group contains both correct and
+incorrect responses, and `extraction-only effective` is optimization-effective
+but not raw-correctness mixed. Log per-step and cumulative forms and normalize
+each signal count per one million generated response tokens. Also log generated
+groups, generated response tokens, top-up groups, scalar zero-variance ratio,
+and raw-correctness zero-variance ratio per optimizer update.
 
 ---
 

@@ -51,6 +51,8 @@ from signal_forge.hive import (
     HivePreRolloutStep,
     HivePromptPreprocessor,
     HiveSelectorState,
+    HiveSignalCounters,
+    HiveSignalStepCounts,
     HiveStepPendingCommit,
     Stage1Config,
     Stage1StepSelector,
@@ -58,17 +60,20 @@ from signal_forge.hive import (
     Stage2Selector,
     aggregate_pre_rollout_selection_metrics,
     compute_stage2_counts,
+    compute_hive_group_signal_counts,
     validate_hive_prompt_preprocessing_scope,
 )
 from signal_forge.observability import (
     RolloutBudgetTracker,
     append_validation_reward_extra_info,
+    build_validation_compute_metrics,
     compute_group_metrics,
     compute_length_metrics,
     compute_reward_extra_metrics,
     compute_section18_timing_metrics,
     compute_validation_alias_metrics,
     load_best_checkpoint_metadata,
+    validate_diagnostic_validation_contract,
 )
 
 from verl import DataProto
@@ -180,6 +185,19 @@ def _cfg_get(config, key, default=None):
     if hasattr(config, "get"):
         return config.get(key, default)
     return getattr(config, key, default)
+
+
+def _should_save_checkpoint(*, trainer_config, global_step: int, is_last_step: bool, esi: bool) -> bool:
+    save_freq = int(trainer_config.get("save_freq", -1) or -1)
+    raw_extra_steps = trainer_config.get("extra_save_steps", []) or []
+    extra_steps = set()
+    for value in raw_extra_steps:
+        if isinstance(value, bool) or int(value) <= 0 or int(value) != value:
+            raise ValueError("trainer.extra_save_steps must contain positive integer steps")
+        extra_steps.add(int(value))
+    return global_step in extra_steps or (
+        save_freq > 0 and (is_last_step or global_step % save_freq == 0 or esi)
+    )
 
 
 def _hive_step_start_metrics(selector: Stage1StepSelector) -> dict[str, float]:
@@ -580,6 +598,7 @@ class RayPPOTrainer:
         self._hive_stage2_selector: Stage2Selector | None = None
         self._hive_pre_rollout_config: HivePreRolloutConfig | None = None
         self._hive_compute_counters: HiveComputeCounters | None = None
+        self._hive_signal_counters: HiveSignalCounters | None = None
         self._hive_topup_config: HiveAdaptiveTopupConfig | None = None
         self._hive_data_stream: HiveEpochSpanningDataStream | None = None
         self._restored_hive_data_stream_state: dict[str, Any] | None = None
@@ -671,6 +690,7 @@ class RayPPOTrainer:
             configuration=self._hive_configuration,
         )
         self._hive_compute_counters = HiveComputeCounters()
+        self._hive_signal_counters = HiveSignalCounters()
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -1124,8 +1144,13 @@ class RayPPOTrainer:
         if self._hive_compute_counters is None:
             raise RuntimeError("HIVE compute counters are not initialized")
         self._hive_compute_counters.mark_step_complete(self.global_steps)
+        if self._hive_signal_counters is None:
+            raise RuntimeError("HIVE signal counters are not initialized")
+        self._hive_signal_counters.mark_step_complete(self.global_steps)
         if self._hive_compute_counters.global_step != self.hive_selector_state.global_step:
             raise RuntimeError("HIVE selector and compute counter steps diverged during commit")
+        if self._hive_signal_counters.global_step != self.hive_selector_state.global_step:
+            raise RuntimeError("HIVE selector and signal counter steps diverged during commit")
         return metrics
 
     def _compute_reward_colocate(self, batch: DataProto) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
@@ -1137,6 +1162,10 @@ class RayPPOTrainer:
         return batch_reward
 
     def _validate(self, merged: bool = False):
+        validation_started_at = time.monotonic()
+        validation_generated_responses = 0
+        validation_prompt_tokens = 0
+        validation_response_tokens = 0
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -1204,6 +1233,17 @@ class RayPPOTrainer:
 
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
+            response_width = int(test_batch.batch["responses"].shape[-1])
+            validation_generated_responses += len(test_batch)
+            validation_prompt_tokens += int(
+                test_batch.batch["attention_mask"][:, :-response_width].sum().detach().cpu().item()
+            )
+            response_mask = (
+                test_batch.batch["response_mask"]
+                if "response_mask" in test_batch.batch
+                else compute_response_mask(test_batch)
+            )
+            validation_response_tokens += int(response_mask.sum().detach().cpu().item())
 
             # Store original inputs
             input_ids = test_batch.batch["prompts"]
@@ -1257,7 +1297,19 @@ class RayPPOTrainer:
                 "reward_extra_infos_dict": reward_extra_infos_dict,
             }
         data_sources = np.concatenate(data_source_lst, axis=0)
-        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
+        metrics = self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
+        validation_wall_seconds = time.monotonic() - validation_started_at
+        metrics.update(
+            build_validation_compute_metrics(
+                generated_responses=validation_generated_responses,
+                generated_prompt_tokens=validation_prompt_tokens,
+                generated_response_tokens=validation_response_tokens,
+                validation_n=int(self.config.actor_rollout_ref.rollout.val_kwargs.n),
+                wall_time_seconds=validation_wall_seconds,
+                label=self.config.trainer.get("validation_label", None),
+            )
+        )
+        return metrics
 
     def _val_metrics_update(self, data_sources, sample_uids, reward_extra_infos_dict, sample_turns):
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
@@ -1654,8 +1706,15 @@ class RayPPOTrainer:
                 raise RuntimeError(
                     "HIVE compute counters global_step does not match trainer checkpoint step"
                 )
+            if self._hive_signal_counters is None:
+                raise RuntimeError("HIVE signal counters are not initialized")
+            if self._hive_signal_counters.global_step != self.global_steps:
+                raise RuntimeError(
+                    "HIVE signal counters global_step does not match trainer checkpoint step"
+                )
             self.hive_selector_state.save_checkpoint(local_global_step_folder)
             self._hive_compute_counters.save_checkpoint(local_global_step_folder)
+            self._hive_signal_counters.save_checkpoint(local_global_step_folder)
 
         self._budget_tracker.save_checkpoint(local_global_step_folder)
 
@@ -1815,6 +1874,26 @@ class RayPPOTrainer:
             except FileNotFoundError:
                 print("Warning: HIVE compute counters are absent from this checkpoint; resetting them to zero")
                 self._hive_compute_counters = HiveComputeCounters(global_step=self.global_steps)
+
+            try:
+                self._hive_signal_counters = HiveSignalCounters.load_checkpoint(
+                    global_step_folder, expected_global_step=self.global_steps
+                )
+            except FileNotFoundError:
+                if self.config.trainer.get("require_hive_signal_counters", False):
+                    raise RuntimeError(
+                        "HIVE signal counters are absent from the resume checkpoint; "
+                        "run the approved observability backfill before resuming"
+                    )
+                print(
+                    "Warning: HIVE signal counters are absent from this checkpoint; "
+                    "exact signal observations start at the resume boundary"
+                )
+                self._hive_signal_counters = HiveSignalCounters(
+                    global_step=self.global_steps,
+                    candidate_observation_start_step=self.global_steps,
+                    training_observation_start_step=self.global_steps,
+                )
 
             if budget_checkpoint_missing:
                 hive_counters = self._hive_compute_counters
@@ -2136,6 +2215,8 @@ class RayPPOTrainer:
         if self._dump_executor._shutdown:
             self._init_dump_executor()
 
+        validate_diagnostic_validation_contract(self.config)
+
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
@@ -2168,7 +2249,8 @@ class RayPPOTrainer:
         if self.config.trainer.get("val_before_train", True):
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
-            val_metrics.update(self._update_best_checkpoint_metadata(val_metrics))
+            if self.config.trainer.get("update_best_checkpoint_metadata", True):
+                val_metrics.update(self._update_best_checkpoint_metadata(val_metrics))
             val_metrics["training/global_step"] = float(self.global_steps)
             val_metrics.update(
                 self._budget_tracker.snapshot(n_gpus=self.resource_pool_manager.get_n_gpus())
@@ -2225,6 +2307,7 @@ class RayPPOTrainer:
                 hive_post_result = None
                 hive_generated_reward_infos = None
                 hive_generated_uids = None
+                hive_generated_scalar_rewards = None
                 hive_generated_raw_correctness = None
                 hive_generated_response_lengths = None
                 hive_pre_rollout_results = []
@@ -2378,6 +2461,9 @@ class RayPPOTrainer:
                         generated_uid_values = np.asarray(
                             batch.non_tensor_batch["uid"], dtype=object
                         ).tolist()
+                        generated_scalar_rewards = np.asarray(
+                            reward_extra_infos_dict["reward"], dtype=object
+                        ).tolist()
                         generated_raw_correctness = np.asarray(
                             reward_extra_infos_dict.get(
                                 "raw_correctness", reward_extra_infos_dict.get("acc", [])
@@ -2468,6 +2554,9 @@ class RayPPOTrainer:
                                         topup_batch.non_tensor_batch["uid"], dtype=object
                                     ).tolist()
                                 )
+                                generated_scalar_rewards.extend(
+                                    np.asarray(topup_reward_infos["reward"], dtype=object).tolist()
+                                )
                                 generated_raw_correctness.extend(
                                     np.asarray(
                                         topup_reward_infos.get(
@@ -2527,6 +2616,7 @@ class RayPPOTrainer:
                         hive_post_result = hive_final_result
                         hive_generated_reward_infos = _concat_reward_infos(generated_reward_parts)
                         hive_generated_uids = generated_uid_values
+                        hive_generated_scalar_rewards = generated_scalar_rewards
                         hive_generated_raw_correctness = generated_raw_correctness
                         hive_generated_response_lengths = generated_response_lengths
                         metrics.update(hive_final_result.metrics)
@@ -2557,6 +2647,34 @@ class RayPPOTrainer:
                         reward_tensor = hive_final_result.training_reward_tensor
                         reward_extra_infos_dict = hive_final_result.training_reward_extra_infos
                         hive_pending_commit = hive_final_result.pending_commit
+                        if self._hive_signal_counters is None:
+                            raise RuntimeError("HIVE signal counters are not initialized")
+                        group_size = int(self.config.algorithm.hive.group_size)
+                        candidate_signal_counts = compute_hive_group_signal_counts(
+                            uids=hive_generated_uids,
+                            scalar_rewards=hive_generated_scalar_rewards,
+                            raw_correctness=hive_generated_raw_correctness,
+                            group_size=group_size,
+                        )
+                        training_raw_correctness = reward_extra_infos_dict.get(
+                            "raw_correctness", reward_extra_infos_dict.get("acc", [])
+                        )
+                        training_signal_counts = compute_hive_group_signal_counts(
+                            uids=np.asarray(batch.non_tensor_batch["uid"], dtype=object).tolist(),
+                            scalar_rewards=reward_extra_infos_dict["reward"],
+                            raw_correctness=training_raw_correctness,
+                            group_size=group_size,
+                        )
+                        metrics.update(
+                            self._hive_signal_counters.update(
+                                HiveSignalStepCounts(
+                                    candidate=candidate_signal_counts,
+                                    training=training_signal_counts,
+                                    generated_response_tokens=diagnostics.generated_response_tokens,
+                                    topup_groups=int(metrics["hive/generated_groups_topup"]),
+                                )
+                            )
+                        )
                         if self.config.trainer.balance_batch:
                             self._balance_batch(batch, metrics=metrics)
                         _refresh_training_batch_meta_info(batch)
@@ -2953,10 +3071,11 @@ class RayPPOTrainer:
                         # 2. It's the last training step.
                         # 3. The current step number is a multiple of the save frequency.
                         # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
-                        if self.config.trainer.save_freq > 0 and (
-                            is_last_step
-                            or self.global_steps % self.config.trainer.save_freq == 0
-                            or esi_close_to_expiration
+                        if _should_save_checkpoint(
+                            trainer_config=self.config.trainer,
+                            global_step=self.global_steps,
+                            is_last_step=is_last_step,
+                            esi=esi_close_to_expiration,
                         ):
                             if esi_close_to_expiration:
                                 print("Force saving checkpoint: ESI instance expiration approaching.")
@@ -2988,7 +3107,8 @@ class RayPPOTrainer:
                         val_metrics: dict = self._validate()
                         if is_last_step:
                             last_val_metrics = val_metrics
-                        val_metrics.update(self._update_best_checkpoint_metadata(val_metrics))
+                        if self.config.trainer.get("update_best_checkpoint_metadata", True):
+                            val_metrics.update(self._update_best_checkpoint_metadata(val_metrics))
                     metrics.update(val_metrics)
 
                 with marked_timer("stop_profile", timing_raw):

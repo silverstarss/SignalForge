@@ -21,6 +21,13 @@ from signal_forge.hive.prompt_entropy import (
     PromptEntropyRecord,
     full_categorical_entropy,
 )
+from signal_forge.hive.signal_metrics import (
+    HIVE_SIGNAL_COUNTERS_FILENAME,
+    HiveGroupSignalCounts,
+    HiveSignalCounters,
+    HiveSignalStepCounts,
+    compute_hive_group_signal_counts,
+)
 from signal_forge.hive.post_rollout import (
     HIVE_COMPUTE_COUNTERS_FILENAME,
     HiveComputeCounters,
@@ -100,6 +107,7 @@ __all__ = [
     "HIVE_DATALOADER_CHECKPOINT_FORMAT",
     "HIVE_DATA_STREAM_STATE_VERSION",
     "HIVE_STATE_FILENAME",
+    "HIVE_SIGNAL_COUNTERS_FILENAME",
     "HiveSelectorSnapshot",
     "HivePromptPreprocessor",
     "HiveComputeCounters",
@@ -129,6 +137,9 @@ __all__ = [
     "HivePreRolloutStep",
     "HivePreRolloutStepResult",
     "HiveSelectorState",
+    "HiveGroupSignalCounts",
+    "HiveSignalCounters",
+    "HiveSignalStepCounts",
     "PromptHistory",
     "PromptIdentityError",
     "PromptEntropyBatchResult",
@@ -155,6 +166,7 @@ __all__ = [
     "attach_stable_prompt_ids",
     "classify_zero_variance",
     "compute_exploration_update",
+    "compute_hive_group_signal_counts",
     "compute_prompt_entropy_rpc",
     "compute_reward_history_signal",
     "compute_adaptive_candidate_target",

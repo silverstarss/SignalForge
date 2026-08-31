@@ -11,6 +11,11 @@ from signal_forge.hive.post_rollout import (
     HivePostRolloutConfig,
     HivePostRolloutInterpreter,
 )
+from signal_forge.hive.signal_metrics import (
+    HiveGroupSignalCounts,
+    HiveSignalCounters,
+    HiveSignalStepCounts,
+)
 from signal_forge.hive.stage1 import Stage1StepSelector, compute_reward_history_signal
 from signal_forge.hive.state import HiveSelectorState, ZeroVarianceType
 from verl import DataProto
@@ -142,12 +147,22 @@ def test_trainer_commit_advances_selector_and_compute_counter_steps_together():
     trainer.hive_selector_state = state
     trainer._hive_compute_counters = HiveComputeCounters()
     trainer._hive_compute_counters.update(result.diagnostics)
+    trainer._hive_signal_counters = HiveSignalCounters()
+    trainer._hive_signal_counters.update(
+        HiveSignalStepCounts(
+            candidate=HiveGroupSignalCounts(3, 1, 1, 0),
+            training=HiveGroupSignalCounts(1, 1, 1, 0),
+            generated_response_tokens=result.diagnostics.generated_response_tokens,
+            topup_groups=0,
+        )
+    )
     trainer.global_steps = 1
 
     trainer._commit_hive_step(selector, result.pending_commit)
 
     assert trainer.hive_selector_state.global_step == 1
     assert trainer._hive_compute_counters.global_step == 1
+    assert trainer._hive_signal_counters.global_step == 1
 
 
 def test_effective_overshoot_trains_first_bt_but_keeps_all_visits_and_accounting():

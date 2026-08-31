@@ -16,6 +16,7 @@ from signal_forge.hive.prompt_entropy import PromptEntropyRecord
 from signal_forge.hive.prompt_preprocessing import CanonicalHivePrompt, HivePromptPreprocessor
 from signal_forge.hive.stage1 import Stage1BatchResult, Stage1StepSelector
 from signal_forge.hive.stage2 import Stage2BatchResult, Stage2Selector
+from signal_forge.hive.state import ZeroVarianceType
 from verl import DataProto
 from verl.utils import tensordict_utils as tu
 
@@ -326,6 +327,9 @@ def _aggregate_selection_metrics(
     rounds: Sequence[HivePreRolloutRoundResult],
 ) -> dict[str, float]:
     stage1_diagnostics = [round_result.stage1.diagnostics for round_result in rounds]
+    stage1_decisions = [
+        decision for round_result in rounds for decision in round_result.stage1.decisions
+    ]
     stage2_diagnostics = [round_result.stage2.diagnostics for round_result in rounds]
     raw = sum(item.raw_prompts_seen for item in stage1_diagnostics)
     unseen = sum(item.unseen_prompts_seen for item in stage1_diagnostics)
@@ -364,9 +368,37 @@ def _aggregate_selection_metrics(
 
     return {
         "hive/raw_prompts_seen": float(raw),
+        "hive/seen_prompts_seen": float(raw - unseen),
         "hive/unseen_prompts_seen": float(unseen),
         "hive/stage1_accepted": float(accepted),
         "hive/stage1_rejected": float(rejected),
+        "hive/stage1_easy_history_seen": float(
+            sum(decision.zero_variance_type is ZeroVarianceType.EASY for decision in stage1_decisions)
+        ),
+        "hive/stage1_hard_history_seen": float(
+            sum(decision.zero_variance_type is ZeroVarianceType.HARD for decision in stage1_decisions)
+        ),
+        "hive/stage1_other_history_seen": float(
+            sum(decision.zero_variance_type is ZeroVarianceType.OTHER for decision in stage1_decisions)
+        ),
+        "hive/stage1_rejected_easy_history": float(
+            sum(
+                not decision.accepted and decision.zero_variance_type is ZeroVarianceType.EASY
+                for decision in stage1_decisions
+            )
+        ),
+        "hive/stage1_rejected_hard_history": float(
+            sum(
+                not decision.accepted and decision.zero_variance_type is ZeroVarianceType.HARD
+                for decision in stage1_decisions
+            )
+        ),
+        "hive/stage1_rejected_other_history": float(
+            sum(
+                not decision.accepted and decision.zero_variance_type is ZeroVarianceType.OTHER
+                for decision in stage1_decisions
+            )
+        ),
         "hive/stage1_accept_ratio": float(accepted / raw) if raw else 0.0,
         "hive/stage2_input": float(stage2_input),
         "hive/stage2_upper_trimmed": float(

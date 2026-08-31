@@ -389,10 +389,35 @@ def test_selection_metrics_aggregate_initial_and_topup_acquisitions():
 
     metrics = aggregate_pre_rollout_selection_metrics((initial_result, topup_result))
     assert metrics["hive/raw_prompts_seen"] == 32.0
+    assert metrics["hive/seen_prompts_seen"] == 0.0
     assert metrics["hive/stage1_accepted"] == 32.0
+    assert metrics["hive/stage1_rejected_easy_history"] == 0.0
+    assert metrics["hive/stage1_rejected_hard_history"] == 0.0
     assert metrics["hive/stage2_input"] == 32.0
     assert metrics["hive/stage2_kept"] == 16.0
     assert metrics["hive/prompt_entropy_mean"] == 15.5
     assert metrics["hive/prompt_entropy_min"] == 0.0
     assert metrics["hive/prompt_entropy_max"] == 31.0
     assert metrics["hive/stage2_entropy_latency_seconds"] == 0.5
+
+
+def test_extra_checkpoint_step_does_not_change_regular_save_schedule():
+    config = OmegaConf.create({"save_freq": 50, "extra_save_steps": [80]})
+
+    assert not ray_trainer._should_save_checkpoint(
+        trainer_config=config, global_step=79, is_last_step=False, esi=False
+    )
+    assert ray_trainer._should_save_checkpoint(
+        trainer_config=config, global_step=80, is_last_step=False, esi=False
+    )
+    assert ray_trainer._should_save_checkpoint(
+        trainer_config=config, global_step=100, is_last_step=True, esi=False
+    )
+
+
+def test_extra_checkpoint_steps_reject_invalid_values():
+    config = OmegaConf.create({"save_freq": 50, "extra_save_steps": [0]})
+    with pytest.raises(ValueError, match="positive integer"):
+        ray_trainer._should_save_checkpoint(
+            trainer_config=config, global_step=1, is_last_step=False, esi=False
+        )

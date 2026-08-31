@@ -5,6 +5,11 @@ from signal_forge.observability.best_checkpoint import (
     load_best_checkpoint_metadata,
 )
 from signal_forge.observability.budget import RolloutBudgetTracker, count_prompt_groups
+from signal_forge.observability.diagnostic_validation import (
+    PILOT_DIAGNOSTIC_STEP80_LABEL,
+    build_validation_compute_metrics,
+    validate_diagnostic_validation_contract,
+)
 from signal_forge.observability.metrics import (
     append_validation_reward_extra_info,
     compute_group_metrics,
@@ -16,7 +21,10 @@ from signal_forge.observability.metrics import (
 
 __all__ = [
     "BestCheckpointMetadata",
+    "PILOT_DIAGNOSTIC_STEP80_LABEL",
+    "build_validation_compute_metrics",
     "load_best_checkpoint_metadata",
+    "validate_diagnostic_validation_contract",
     "RolloutBudgetTracker",
     "count_prompt_groups",
     "append_validation_reward_extra_info",

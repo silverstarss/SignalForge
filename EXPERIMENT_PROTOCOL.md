@@ -453,6 +453,36 @@ before validation continues. A null checkpoint path is valid when the pretrained
 step-0 model remains best; the metric value and step must still be restored so a
 worse post-resume validation cannot replace it.
 
+Formal B is staged at the pre-registered stop/go gate. The existing
+`global_step_50` checkpoint is segment 0--50 of the same Formal B run. Its
+resolved `total_training_steps=50` affected termination/progress metadata and
+the last-step save/validation condition only: the frozen constant scheduler,
+zero warmup, learning rate, sampler/data-stream state, HIVE controller, and all
+selection/top-up parameters are independent of training progress. Resume to
+step 100 must disable `val_before_train` so step-50 validation is not replayed,
+and must restore actor, optimizer, constant scheduler, RNG, dataloader/HIVE data
+stream, selector/controller, HIVE compute, shared compute, and signal counters.
+
+The step-50 log permits exact backfill of candidate-pool learning-signal
+counters: 3,696 generated groups, 1,961 scalar-effective groups, 1,732
+raw-correctness-mixed groups, 229 extraction-only-effective groups, 20,831,764
+generated response tokens, and 1,296 top-up groups. The old rollout dump does
+not preserve all responses or the deterministic arrival order of the final
+training slice, so historical final-`B_t` raw-correctness counters must not be
+fabricated. Exact `training/*` signal observation begins after the step-50
+checkpoint; reports must retain that observation boundary.
+
+For the step-100 stop/go review, save one additional checkpoint at step 80 and
+run `pilot_diagnostic_step80` only after the uninterrupted step-50-to-100
+training segment completes. The diagnostic is a separate `val_only` process
+resumed from step 80, writes to a separate output root, does not update
+`best_checkpoint.json`, and is excluded from both the pre-registered validation
+curve and model selection. Its generated prompt/response tokens and wall time
+are recorded under `validation/*` and `physical_compute/validation_*`, but it
+does not mutate the training dataloader, RNG continuation, HIVE history,
+controller, or training compute counters. The extra step-80 checkpoint is
+diagnostic-only and does not change the six scheduled formal checkpoint steps.
+
 
 ---
 

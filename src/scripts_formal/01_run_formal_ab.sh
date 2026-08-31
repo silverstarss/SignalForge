@@ -36,6 +36,15 @@ for arg in "$@"; do
         trainer.resume_from_path=*|trainer.resume_mode=resume_path|trainer.del_local_ckpt_after_load=True)
             FORWARD_ARGS+=("${arg}")
             ;;
+        trainer.val_before_train=False|trainer.val_only=True|trainer.save_freq=-1|trainer.test_freq=-1)
+            FORWARD_ARGS+=("${arg}")
+            ;;
+        +trainer.require_hive_signal_counters=True|+trainer.update_best_checkpoint_metadata=False)
+            FORWARD_ARGS+=("${arg}")
+            ;;
+        +trainer.extra_save_steps=\[*\]|+trainer.validation_label=pilot_diagnostic_step80)
+            FORWARD_ARGS+=("${arg}")
+            ;;
         *)
             echo "ERROR: frozen formal launcher rejects semantic or unapproved override: ${arg}" >&2
             exit 2
@@ -87,7 +96,12 @@ export TRAIN_BATCH_SIZE=32
 export GEN_BATCH_SIZE=32
 export ROLLOUT_N=8
 export VAL_ROLLOUT_N=1
-export TOTAL_TRAINING_STEPS=300
+FORMAL_SEGMENT_END_STEP=${FORMAL_SEGMENT_END_STEP:-300}
+if [ "${FORMAL_SEGMENT_END_STEP}" != "100" ] && [ "${FORMAL_SEGMENT_END_STEP}" != "300" ]; then
+    echo "ERROR: FORMAL_SEGMENT_END_STEP must be 100 or 300." >&2
+    exit 2
+fi
+export TOTAL_TRAINING_STEPS=${FORMAL_SEGMENT_END_STEP}
 export TOTAL_EPOCHS=300
 export MAX_PROMPT_LENGTH=1792
 export MAX_RESPONSE_LENGTH=1536
