@@ -472,6 +472,16 @@ training slice, so historical final-`B_t` raw-correctness counters must not be
 fabricated. Exact `training/*` signal observation begins after the step-50
 checkpoint; reports must retain that observation boundary.
 
+Following the pre-registered step-100 stop/go audit and the isolated
+`pilot_diagnostic_step80` validation, Formal B uses one terminal audit segment
+from step 100 through step 115. Step 115 is the final Formal B optimizer step;
+the ordinary last-step checkpoint and frozen six-benchmark validation run at
+that boundary. This shortened terminal segment changes only run termination
+metadata under the frozen constant scheduler with zero warmup. It does not
+change the optimizer, sampler, HIVE controller, selection/top-up parameters,
+reward, decoding, or history-commit semantics. Formal B is frozen after this
+validation and is not continued to step 300.
+
 For the step-100 stop/go review, save one additional checkpoint at step 80 and
 run `pilot_diagnostic_step80` only after the uninterrupted step-50-to-100
 training segment completes. The diagnostic is a separate `val_only` process
